@@ -497,6 +497,8 @@ async function loadRoomData(isBackground = false) {
         updateAdminDetails();
         
         // Vẽ lại lưới của Thành viên nếu có thành viên đang chọn
+        if (state.currentMemberId && state.room.members[state.currentMemberId]) {
+            fillMemberGridFromState(state.room.members[state.currentMemberId].schedule);
         }
         
         return true;
