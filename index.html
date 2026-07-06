@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeamSync - Lập Lịch Nhóm Trực Tuyến</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Main Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden">
+        <span class="toast-icon"><i class="fa-solid fa-circle-check"></i></span>
+        <span class="toast-message">Đã lưu thông tin thành công!</span>
+    </div>
+
+    <!-- 1. HOME VIEW (Trang chủ tạo phòng) -->
+    <div id="home-view" class="home-container">
+        <header class="home-header">
+            <div class="logo justify-center">
+                <i class="fa-solid fa-calendar-days logo-icon"></i>
+                <div class="logo-text text-left">
+                    <h1>TeamSync</h1>
+                    <span>Lên lịch rảnh/bận cho đội ngũ của bạn</span>
+                </div>
+            </div>
+            <p class="home-subtitle">Tạo phòng lịch biểu trực tuyến nhanh chóng, chia sẻ liên kết để mọi người cùng điền, bảo mật quản trị bằng mật khẩu.</p>
+        </header>
+
+        <main class="home-main">
+            <!-- Create Room Card -->
+            <div class="card create-room-card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-square-plus"></i> Tạo Phòng Lập Lịch Mới</h2>
+                    <p class="subtitle">Lập lịch rảnh cho cuộc họp, sự kiện hoặc lịch làm việc tuần</p>
+                </div>
+                <div class="card-body">
+                    <form id="form-create-room">
+                        <div class="form-group margin-bottom-md">
+                            <label for="room-name"><i class="fa-solid fa-file-signature"></i> Tên phòng lịch biểu</label>
+                            <input type="text" id="room-name" class="form-control" placeholder="Ví dụ: Lịch rảnh họp Team Dev, Lịch trực tuần..." required autocomplete="off">
+                        </div>
+                        <div class="form-group margin-bottom-md">
+                            <label for="room-admin-password"><i class="fa-solid fa-key"></i> Mật khẩu Admin (Để xem và lọc lịch tổng hợp)</label>
+                            <input type="password" id="room-admin-password" class="form-control" placeholder="Nhập mật khẩu quản trị..." required autocomplete="off">
+                        </div>
+                        <div class="form-group margin-bottom-md">
+                            <label><i class="fa-solid fa-calendar-day"></i> Loại lịch biểu</label>
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="room-schedule-type" value="weekly" checked>
+                                    <span>Lịch tuần cố định (T2 - CN)</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="room-schedule-type" value="date">
+                                    <span>Lịch theo ngày thực tế</span>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Date Selection Container -->
+                        <div id="date-selection-container" class="margin-bottom-md hidden">
+                            <label><i class="fa-solid fa-calendar-days"></i> Chọn các ngày cần lập lịch (Chọn nhiều ngày)</label>
+                            <div class="calendar-picker-card">
+                                <div class="calendar-picker-header">
+                                    <button type="button" id="btn-prev-month" class="btn btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <span id="calendar-picker-month-year">Tháng 07, 2026</span>
+                                    <button type="button" id="btn-next-month" class="btn btn-secondary btn-sm"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                                <div class="calendar-picker-weekdays">
+                                    <div>T2</div><div>T3</div><div>T4</div><div>T5</div><div>T6</div><div>T7</div><div>CN</div>
+                                </div>
+                                <div class="calendar-picker-days" id="calendar-picker-days-grid">
+                                    <!-- Dynamically generated days -->
+                                </div>
+                            </div>
+                            <div class="selected-dates-summary">
+                                <span>Đã chọn: <strong id="selected-dates-count">0</strong> ngày</span>
+                                <button type="button" id="btn-clear-selected-dates" class="btn btn-secondary btn-sm" style="margin-left: auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Xóa tất cả
+                                </button>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block btn-lg">
+                            <i class="fa-solid fa-circle-arrow-right"></i> Tạo phòng & Vào điền lịch
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Recent Rooms Card -->
+            <div class="card recent-rooms-card hidden" id="recent-rooms-card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-clock-rotate-left"></i> Các Phòng Đã Truy Cập Gần Đây</h2>
+                    <p class="subtitle">Truy cập nhanh lại các phòng đặt lịch trước đây của bạn</p>
+                </div>
+                <div class="card-body">
+                    <ul class="recent-rooms-list" id="recent-rooms-list">
+                        <!-- Filled by JS -->
+                    </ul>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 2. MAIN APP WORKSPACE (Giao diện phòng lịch biểu) -->
+    <div id="app-workspace" class="app-container hidden">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-go-home">
+                    <i class="fa-solid fa-chevron-left"></i> Trang Chủ
+                </button>
+                <div class="logo">
+                    <i class="fa-solid fa-calendar-days logo-icon small-icon"></i>
+                    <div class="logo-text">
+                        <h1 id="workspace-room-name">Tên Phòng Lịch</h1>
+                        <span>Phòng lịch biểu nhóm</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="header-right">
+                <button type="button" class="btn btn-success" id="btn-share-link">
+                    <i class="fa-solid fa-share-nodes"></i> Sao chép link chia sẻ
+                </button>
+                <nav class="tab-navigation">
+                    <button class="tab-btn active" data-tab="member-tab" id="nav-member">
+                        <i class="fa-solid fa-user-pen"></i> Thành Viên Điền Lịch
+                    </button>
+                    <button class="tab-btn" data-tab="admin-tab" id="nav-admin">
+                        <i class="fa-solid fa-user-shield"></i> Bảng Admin Lọc Lịch
+                    </button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="app-content">
+            
+            <!-- SECTION A: MEMBER TAB -->
+            <section id="member-tab" class="tab-pane active">
+                <div class="card member-profile-card">
+                    <div class="card-header schedule-header-flex">
+                        <div>
+                            <h2>Bước 1: Chọn hoặc Thêm Thành Viên</h2>
+                            <p class="subtitle">Nhập tên mới để tham gia điền lịch hoặc chọn tên của bạn để cập nhật lịch</p>
+                        </div>
+                        <div class="member-count-badge">
+                            Số thành viên đã điền: <strong id="member-count-value">0</strong>
+                        </div>
+                    </div>
+                    <div class="card-body member-form-row">
+                        <!-- Select Existing Member -->
+                        <div class="form-group select-member-group">
+                            <label for="member-select"><i class="fa-solid fa-users"></i> Chọn thành viên đã có</label>
+                            <div class="custom-select-wrapper">
+                                <select id="member-select" class="form-control">
+                                    <option value="" disabled selected>-- Chọn thành viên từ danh sách --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Divider -->
+                        <div class="form-divider"><span>HOẶC</span></div>
+
+                        <!-- Add New Member -->
+                        <div class="form-group add-member-group">
+                            <label for="new-member-name"><i class="fa-solid fa-user-plus"></i> Thêm thành viên mới để tham gia</label>
+                            <div class="input-with-btn">
+                                <input type="text" id="new-member-name" class="form-control" placeholder="Nhập họ và tên của bạn..." autocomplete="off">
+                                <button type="button" id="btn-add-member" class="btn btn-primary">
+                                    <i class="fa-solid fa-plus"></i> Tham gia
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Schedule Selection Area -->
+                <div id="schedule-section" class="card schedule-card disabled-state">
+                    <!-- Overlay for disabled state -->
+                    <div class="disabled-overlay">
+                        <div class="overlay-content">
+                            <i class="fa-solid fa-arrow-pointer overlay-icon"></i>
+                            <h3>Hãy chọn hoặc thêm tên của bạn trước</h3>
+                            <p>Chọn thành viên ở Bước 1 để bắt đầu đánh dấu khung giờ rảnh của bạn.</p>
+                        </div>
+                    </div>
+
+                    <div class="card-header schedule-header-flex">
+                        <div>
+                            <h2>Bước 2: Chọn khung giờ RẢNH của bạn (6h00 - 0h00)</h2>
+                            <p class="subtitle">Nhấp chuột hoặc kéo rê chuột để chọn.</p>
+                        </div>
+                        <div class="member-display-badge">
+                            Đang điền lịch cho: <strong id="current-member-name">Chưa chọn</strong>
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <!-- Legend & Quick Actions -->
+                        <div class="schedule-actions-row">
+                            <div class="member-options-flex">
+                                <!-- Checkbox to toggle other members' schedules -->
+                                <div class="toggle-container">
+                                    <label class="switch">
+                                        <input type="checkbox" id="checkbox-show-other-members">
+                                        <span class="slider round"></span>
+                                    </label>
+                                    <span class="toggle-label">Hiện lịch rảnh của các thành viên khác</span>
+                                </div>
+                                
+                                <div class="quick-buttons">
+                                    <button type="button" id="btn-clear-schedule" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-trash-can"></i> Xóa tất cả
+                                    </button>
+                                    <button type="button" id="btn-select-all" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-check-double"></i> Chọn tất cả
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Calendar Grid -->
+                        <div class="grid-scroll-container">
+                            <div class="schedule-grid" id="member-schedule-grid">
+                                <!-- Generated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Palette Legend -->
+                        <div class="palette-legend" id="member-palette-legend">
+                            <div class="palette-legend-bar" id="member-palette-bar"></div>
+                            <div class="palette-legend-labels">
+                                <span>Ít người rảnh</span>
+                                <span>Nhiều người rảnh</span>
+                            </div>
+                        </div>
+
+                        <!-- Save Button Section -->
+                        <div class="save-actions-row">
+                            <button type="button" id="btn-save-schedule" class="btn btn-success btn-lg">
+                                <i class="fa-solid fa-floppy-disk"></i> Lưu lịch biểu cá nhân
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION B: ADMIN TAB -->
+            <section id="admin-tab" class="tab-pane">
+                <!-- 1. Password Prompt (Shown if not unlocked) -->
+                <div class="card admin-lock-card" id="admin-lock-card">
+                    <div class="card-header text-center">
+                        <i class="fa-solid fa-lock lock-icon"></i>
+                        <h2>Bảng Quản Trị Được Bảo Mật</h2>
+                        <p class="subtitle">Vui lòng nhập mật khẩu Admin để xem lịch biểu tổng hợp và các bộ lọc</p>
+                    </div>
+                    <div class="card-body">
+                        <form id="form-admin-auth" class="admin-auth-form">
+                            <div class="form-group margin-bottom-md">
+                                <input type="password" id="admin-auth-password" class="form-control text-center" placeholder="Nhập mật khẩu Admin của phòng..." required autocomplete="off">
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block btn-lg">
+                                <i class="fa-solid fa-lock-open"></i> Mở khóa Admin
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 2. Full Admin Dashboard Workspace (Shown once unlocked) -->
+                <div class="admin-layout hidden" id="admin-workspace-content">
+                    <!-- Filters Sidebar -->
+                    <div class="admin-sidebar">
+                        <div class="card admin-filter-card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-sliders"></i> Bộ lọc Admin</h2>
+                            </div>
+                            <div class="card-body">
+                                <!-- Filter Member Multi-select -->
+                                <div class="form-group margin-bottom-md">
+                                    <label><strong>1. Lọc theo Thành Viên</strong></label>
+                                    <div class="multi-check-list" id="admin-filter-members-list">
+                                        <label class="check-all-label">
+                                            <input type="checkbox" id="admin-filter-member-all" checked>
+                                            <span>-- Tất cả thành viên --</span>
+                                        </label>
+                                        <!-- Filled by JS -->
+                                    </div>
+                                    <p class="filter-tip">Tích chọn nhiều thành viên để xem lịch rảnh chung.</p>
+                                </div>
+
+                                <!-- Filter Day Multi-select -->
+                                <div class="form-group margin-bottom-md">
+                                    <label><strong>2. Lọc theo Ngày</strong></label>
+                                    <div class="multi-check-list" id="admin-filter-days-list">
+                                        <label class="check-all-label">
+                                            <input type="checkbox" id="admin-filter-day-all" checked>
+                                            <span>-- Tất cả ngày --</span>
+                                        </label>
+                                        <!-- Filled by JS -->
+                                    </div>
+                                </div>
+
+                                <!-- Filter Hour Multi-select -->
+                                <div class="form-group margin-bottom-md">
+                                    <label><strong>3. Lọc theo Khung Giờ</strong></label>
+                                    <div class="multi-check-list" id="admin-filter-hours-list">
+                                        <label class="check-all-label">
+                                            <input type="checkbox" id="admin-filter-hour-all" checked>
+                                            <span>-- Tất cả giờ --</span>
+                                        </label>
+                                        <!-- Filled by JS -->
+                                    </div>
+                                </div>
+
+                                <!-- Reset Button -->
+                                <button type="button" id="btn-reset-filters" class="btn btn-secondary btn-block">
+                                    <i class="fa-solid fa-rotate-left"></i> Đặt lại bộ lọc
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Selected Info Card -->
+                        <div class="card admin-details-card" id="admin-details-card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-circle-info"></i> Kết Quả Lọc Chi Tiết</h2>
+                            </div>
+                            <div class="card-body" id="admin-details-content">
+                                <div class="empty-state">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <p>Chọn các bộ lọc ở trên hoặc nhấp trực tiếp vào ô lưới lịch biểu để phân tích chi tiết.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Visual Grid Display -->
+                    <div class="admin-main">
+                        <div class="card admin-grid-card">
+                            <div class="card-header schedule-header-flex">
+                                <div>
+                                    <h2><i class="fa-solid fa-calendar-week"></i> Bản Đồ Lịch Biểu Tổng Hợp</h2>
+                                    <p class="subtitle">Nhấp vào ô bất kỳ để xem danh sách chi tiết.</p>
+                                </div>
+                                <div class="total-members-badge">
+                                    Tổng số thành viên: <strong id="admin-total-members-count">0</strong>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Calendar Grid for Admin -->
+                                <div class="grid-scroll-container">
+                                    <div class="schedule-grid" id="admin-schedule-grid">
+                                        <!-- Generated by JS -->
+                                    </div>
+                                </div>
+
+                                <!-- Palette Legend -->
+                                <div class="palette-legend" id="admin-palette-legend">
+                                    <div class="palette-legend-bar" id="admin-palette-bar"></div>
+                                    <div class="palette-legend-labels">
+                                        <span>Ít người rảnh</span>
+                                        <span>Nhiều người rảnh</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Setup Guide Button -->
+        <footer class="app-footer">
+            <p>TeamSync chạy trực tuyến miễn phí. <a href="#" id="btn-toggle-setup"><i class="fa-brands fa-google"></i> Bấm để xem hướng dẫn đồng bộ online với Firebase</a></p>
+        </footer>
+    </div>
+
+    <!-- Firebase Setup Modal -->
+    <div id="firebase-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fa-brands fa-google"></i> Hướng Dẫn Đồng Bộ Firebase Online Miễn Phí</h2>
+                <button type="button" class="btn-close-modal" id="btn-close-modal">&times;</button>
+            </div>
+            <div class="modal-body scrollable-modal-body text-left">
+                <h3>Bước 1: Tạo dự án Firebase</h3>
+                <ol>
+                    <li>Truy cập <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console <i class="fa-solid fa-arrow-up-right-from-square"></i></a> và tạo dự án mới (ví dụ: <code>teamsync-rtdb</code>).</li>
+                </ol>
+
+                <h3>Bước 2: Tạo Realtime Database</h3>
+                <ol>
+                    <li>Vào mục <strong>Build &gt; Realtime Database</strong>. Nhấn <strong>Create Database</strong>.</li>
+                    <li>Chọn chế độ <strong>Start in test mode</strong> (Chế độ thử nghiệm) rồi kích hoạt.</li>
+                    <li>Copy URL của Database mới tạo (dạng: <code>https://your-id.firebaseio.com/</code>).</li>
+                </ol>
+
+                <h3>Bước 3: Tích hợp vào source code</h3>
+                <p>Mở file <code>app.js</code> và dán URL vào biến cấu hình đầu file:</p>
+                <pre><code class="language-javascript">const FIREBASE_DB_URL = "https://your-id.firebaseio.com/";</code></pre>
+
+                <h3>Bước 4: Đẩy lên Vercel chạy trực tuyến</h3>
+                <ol>
+                    <li>Đưa thư mục code này lên GitHub cá nhân của bạn.</li>
+                    <li>Kết nối GitHub với <a href="https://vercel.com" target="_blank" rel="noopener">Vercel.com <i class="fa-solid fa-arrow-up-right-from-square"></i></a> và Deploy.</li>
+                    <li>Bạn sẽ có đường dẫn <code>https://ten-du-an.vercel.app</code>. Chia sẻ link này cho nhóm của bạn cùng truy cập!</li>
+                </ol>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btn-close-modal-footer">Đóng hướng dẫn</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
