@@ -1,4 +1,4 @@
-﻿/**
+/**
  * TeamSync - Team Scheduler Application Logic (Multi-room Edition)
  * 
  * CẤU HÌNH FIREBASE Ở ĐÂY:
@@ -26,11 +26,10 @@ const HOURS = [
     '20:00', '21:00', '22:00', '23:00'
 ];
 
-// Bảng màu 60 sắc độ dựa trên palette Coolors (interpolated across 10 anchors)
+// Bảng màu 60 sắc độ dựa trên palette mới
 // Anchors: dark -> light (sẽ được đảo ngược để PALETTE[0] = nhạt nhất, PALETTE[59] = đậm nhất)
 const PALETTE_ANCHORS = [
-    '#7400B8', '#8013BD', '#8B26C3', '#9739C8', '#A24CCD',
-    '#AE60D3', '#B973D8', '#C586DD', '#D099E3', '#DCACE8'
+    '#401565', '#402A7E', '#464898', '#687EB1', '#91B2CB', '#C0DFE4', '#F5FEFD'
 ];
 
 function hexToRgb(hex) {
@@ -136,8 +135,7 @@ let state = {
         day: null,
         hour: null
     },
-    isOfflineMode: true,
-    showOtherMembersOnGrid: false
+    isOfflineMode: true
 };
 
 // Biến điều khiển thao tác kéo chuột tô lịch
@@ -499,11 +497,6 @@ async function loadRoomData(isBackground = false) {
         updateAdminDetails();
         
         // Vẽ lại lưới của Thành viên nếu có thành viên đang chọn
-        if (state.currentMemberId && state.room.members[state.currentMemberId]) {
-            fillMemberGridFromState(state.room.members[state.currentMemberId].schedule);
-        } else if (state.showOtherMembersOnGrid) {
-            // Nếu bật chế độ xem lịch nhóm nhưng chưa chọn ai cụ thể
-            renderMemberGridDensity();
         }
         
         return true;
@@ -626,71 +619,6 @@ async function saveRoomDataToDB() {
 }
 
 // -------------------------------------------------------------
-// DENSITY HEATMAP LỊCH NHÓM CHO THÀNH VIÊN
-// -------------------------------------------------------------
-// Behavior:
-// - If `state.showOtherMembersOnGrid === false`: show only current member's schedule (CSS `.state-free` remains responsible for visual).
-//   Any inline aggregation styles previously applied are cleared so the user's own highlight is visible.
-// - If `state.showOtherMembersOnGrid === true`: compute aggregated free counts across all members and apply PALETTE mapping
-//   exactly like the admin grid. Current user's own `.state-free` is preserved in the DOM (so selection is kept) but
-//   inline background is used to visually blend them into the aggregated heatmap.
-function renderMemberGridDensity() {
-    if (!state.room) return;
-    const cells = document.querySelectorAll('#member-schedule-grid .grid-slot-cell');
-    const members = Object.values(state.room.members);
-    const effectiveTotal = members.length;
-    
-    // If group view is OFF -> clear inline aggregation styles and leave `.state-free` CSS to show only current member
-    if (!state.showOtherMembersOnGrid) {
-        cells.forEach(cell => {
-            cell.style.backgroundColor = '';
-            cell.style.color = '';
-            cell.style.boxShadow = '';
-            cell.style.opacity = '';
-            // do not remove .state-free class; CSS handles personal highlight
-        });
-        return;
-    }
-    
-    // Group view ON -> aggregate across members and apply palette (same logic as admin)
-    cells.forEach(cell => {
-        const day = cell.getAttribute('data-day');
-        const hour = cell.getAttribute('data-hour');
-        
-        // Reset inline styles that might conflict
-        cell.style.boxShadow = '';
-        cell.style.opacity = '';
-        
-        // Count number of members free for this slot (including current user)
-        let freeCount = 0;
-        members.forEach(m => {
-            if (m.schedule && m.schedule[day] && m.schedule[day].includes(hour)) {
-                freeCount++;
-            }
-        });
-        
-        if (effectiveTotal > 0 && freeCount > 0) {
-            let colorIndex = 0;
-            if (effectiveTotal <= 60) {
-                colorIndex = freeCount;
-            } else {
-                let step = Math.round(effectiveTotal / 60);
-                if (step < 1) step = 1;
-                colorIndex = Math.round(freeCount / step);
-            }
-            colorIndex = Math.min(59, Math.max(0, colorIndex));
-            
-            cell.style.backgroundColor = PALETTE[colorIndex];
-            cell.style.color = colorIndex >= 25 ? '#f8fafc' : '#1a0a2e';
-        } else {
-            // no one free -> clear inline background so it looks neutral
-            cell.style.backgroundColor = '';
-            cell.style.color = '';
-        }
-    });
-}
-
-// -------------------------------------------------------------
 // LƯỚI ĐIỀN LỊCH THÀNH VIÊN (MEMBER WORKSPACE)
 // -------------------------------------------------------------
 function buildMemberGrid() {
@@ -737,7 +665,6 @@ function buildMemberGrid() {
                     slotCell.classList.add('state-free');
                 }
                 
-                renderMemberGridDensity();
                 e.preventDefault();
             });
             
@@ -749,7 +676,6 @@ function buildMemberGrid() {
                 } else {
                     slotCell.classList.remove('state-free');
                 }
-                renderMemberGridDensity();
             });
             
             grid.appendChild(slotCell);
@@ -770,8 +696,6 @@ function fillMemberGridFromState(schedule) {
             cell.classList.remove('state-free');
         }
     });
-    
-    renderMemberGridDensity();
 }
 
 // Thu thập các ô đang chọn rảnh trên lưới
@@ -1145,7 +1069,6 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
                 cell.classList.add('state-free');
             });
-            renderMemberGridDensity();
         });
     }
     if (btnClearAll) {
@@ -1154,16 +1077,6 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
                 cell.classList.remove('state-free');
             });
-            renderMemberGridDensity();
-        });
-    }
-    
-    // 8. Tab Thành viên: Checkbox bật tắt hiện lịch nhóm
-    const checkboxShowOther = document.getElementById('checkbox-show-other-members');
-    if (checkboxShowOther) {
-        checkboxShowOther.addEventListener('change', (e) => {
-            state.showOtherMembersOnGrid = e.target.checked;
-            renderMemberGridDensity();
         });
     }
     
@@ -1181,6 +1094,18 @@ function setupGlobalEventListeners() {
             } else {
                 showToast("Mật khẩu quản trị sai!", "error");
             }
+        });
+    }
+    
+    // Collapsible Admin Filter Tool
+    const btnToggleAdminFilter = document.getElementById('btn-toggle-admin-filter');
+    const adminFilterBody = document.getElementById('admin-filter-body');
+    const adminFilterToggleIcon = document.getElementById('admin-filter-toggle-icon');
+    
+    if (btnToggleAdminFilter && adminFilterBody && adminFilterToggleIcon) {
+        btnToggleAdminFilter.addEventListener('click', () => {
+            adminFilterBody.classList.toggle('hidden');
+            adminFilterToggleIcon.classList.toggle('open');
         });
     }
     

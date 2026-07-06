@@ -207,14 +207,7 @@
                         <!-- Legend & Quick Actions -->
                         <div class="schedule-actions-row">
                             <div class="member-options-flex">
-                                <!-- Checkbox to toggle other members' schedules -->
-                                <div class="toggle-container">
-                                    <label class="switch">
-                                        <input type="checkbox" id="checkbox-show-other-members">
-                                        <span class="slider round"></span>
-                                    </label>
-                                    <span class="toggle-label">Hiện lịch rảnh của các thành viên khác</span>
-                                </div>
+                                <!-- Checkbox to toggle other members' schedules REMOVED -->
                                 
                                 <div class="quick-buttons">
                                     <button type="button" id="btn-clear-schedule" class="btn btn-secondary btn-sm">
@@ -234,14 +227,7 @@
                             </div>
                         </div>
 
-                        <!-- Palette Legend -->
-                        <div class="palette-legend" id="member-palette-legend">
-                            <div class="palette-legend-bar" id="member-palette-bar"></div>
-                            <div class="palette-legend-labels">
-                                <span>Ít người rảnh</span>
-                                <span>Nhiều người rảnh</span>
-                            </div>
-                        </div>
+                        <!-- Palette Legend REMOVED -->
 
                         <!-- Save Button Section -->
                         <div class="save-actions-row">
@@ -275,14 +261,18 @@
                 </div>
 
                 <!-- 2. Full Admin Dashboard Workspace (Shown once unlocked) -->
-                <div class="admin-layout hidden" id="admin-workspace-content">
-                    <!-- Filters Sidebar -->
-                    <div class="admin-sidebar">
-                        <div class="card admin-filter-card">
-                            <div class="card-header">
-                                <h2><i class="fa-solid fa-sliders"></i> Bộ lọc Admin</h2>
+                <div class="admin-layout-single hidden" id="admin-workspace-content">
+                    
+                    <!-- Filter Collapsible Tool -->
+                    <div class="card admin-filter-card collapsible-card" id="admin-filter-container">
+                        <div class="card-header collapsible-header" id="btn-toggle-admin-filter">
+                            <div class="header-title-flex">
+                                <h2><i class="fa-solid fa-sliders"></i> Công cụ Lọc Admin</h2>
+                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn tính năng lọc</p>
                             </div>
-                            <div class="card-body">
+                            <i class="fa-solid fa-chevron-down toggle-icon" id="admin-filter-toggle-icon"></i>
+                        </div>
+                        <div class="card-body collapsible-body hidden" id="admin-filter-body">
                                 <!-- Filter Member Multi-select -->
                                 <div class="form-group margin-bottom-md">
                                     <label><strong>1. Lọc theo Thành Viên</strong></label>
@@ -327,7 +317,7 @@
                             </div>
                         </div>
 
-                        <!-- Selected Info Card -->
+                        <!-- Selected Info Card (Moved above grid) -->
                         <div class="card admin-details-card" id="admin-details-card">
                             <div class="card-header">
                                 <h2><i class="fa-solid fa-circle-info"></i> Kết Quả Lọc Chi Tiết</h2>
@@ -339,10 +329,8 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Visual Grid Display -->
-                    <div class="admin-main">
+                        <!-- Visual Grid Display -->
                         <div class="card admin-grid-card">
                             <div class="card-header schedule-header-flex">
                                 <div>
@@ -371,7 +359,6 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
                 </div>
             </section>
         </main>
