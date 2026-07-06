@@ -596,6 +596,20 @@ async function saveMemberScheduleToDB(memberId, schedule) {
     await saveRoomDataToDB();
     showToast(`Đã lưu lịch biểu của ${state.room.members[memberId].name}`);
     
+    // Reset lựa chọn thành viên và giao diện về trạng thái ban đầu sau khi lưu
+    state.currentMemberId = null;
+    const memberSelect = document.getElementById('member-select');
+    if (memberSelect) memberSelect.value = "";
+    const currentMemberName = document.getElementById('current-member-name');
+    if (currentMemberName) currentMemberName.textContent = "Chưa chọn";
+    const scheduleSection = document.getElementById('schedule-section');
+    if (scheduleSection) scheduleSection.classList.add('disabled-state');
+    
+    // Xóa các ô màu xanh đã chọn trên lưới
+    document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
+        cell.classList.remove('state-free');
+    });
+    
     await loadRoomData(true);
 }
 
@@ -850,6 +864,10 @@ function renderAdminGrid() {
 
 function updateAdminDetails() {
     if (!state.room) return;
+    
+    // Luôn cập nhật phần gợi ý lịch họp tối ưu
+    updateAdminSuggestions();
+
     const detailsContent = document.getElementById('admin-details-content');
     
     const memberIds = state.adminFilters.memberIds;
@@ -858,7 +876,7 @@ function updateAdminDetails() {
     
     const hasFilter = memberIds.length > 0 || filteredDays.length > 0 || filteredHours.length > 0;
     
-    // If admin clicked a specific cell, show the list of members free at that slot
+    // If admin clicked a specific cell, show the list of members free and busy at that slot
     if (state.selectedAdminCell.day && state.selectedAdminCell.hour) {
         const day = state.selectedAdminCell.day;
         const hour = state.selectedAdminCell.hour;
@@ -868,17 +886,31 @@ function updateAdminDetails() {
             : Object.values(state.room.members);
         
         const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+        const busyMembers = membersToConsider.filter(m => !m.schedule[day] || !m.schedule[day].includes(hour));
+        
         const freeHtml = freeMembers.length > 0
-            ? freeMembers.map(m => `<li class="member-list-item free-member"><strong>${m.name}</strong></li>`).join('')
-            : '<p class="filter-tip">Không có thành viên rảnh vào khung giờ này.</p>';
+            ? freeMembers.map(m => `<li class="member-list-item free-member" style="border-left: 3px solid var(--color-success);"><span class="status-icon" style="color: var(--color-success); margin-right: 0.5rem;"><i class="fa-solid fa-circle-check"></i></span><strong>${m.name}</strong></li>`).join('')
+            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên rảnh.</p>';
+            
+        const busyHtml = busyMembers.length > 0
+            ? busyMembers.map(m => `<li class="member-list-item busy-member" style="border-left: 3px solid var(--color-danger); color: var(--text-muted);"><span class="status-icon" style="color: var(--color-danger); margin-right: 0.5rem;"><i class="fa-solid fa-circle-xmark"></i></span><strong>${m.name}</strong></li>`).join('')
+            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên bận.</p>';
         
         detailsContent.innerHTML = `
             <div class="detail-section">
-                <h3 class="detail-title">Danh sách thành viên rảnh</h3>
-                <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">
-                    <strong>${getRoomDayLabel(day)}</strong> · ${hour} - ${getNextHourString(hour)}
+                <div style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-primary); text-align: center;">
+                    <i class="fa-regular fa-clock" style="color: var(--color-success); margin-right: 0.4rem;"></i><strong>${getRoomDayLabel(day)}</strong> · ${hour} - ${getNextHourString(hour)}
                 </div>
-                ${freeMembers.length > 0 ? `<ul class="member-list" style="max-height: 300px; overflow:auto; padding-left: 0.6rem;">${freeHtml}</ul>` : freeHtml}
+                
+                <h3 class="detail-title" style="margin-top: 0.5rem;"><i class="fa-solid fa-check" style="color: var(--color-success); margin-right: 0.4rem;"></i> Rảnh (${freeMembers.length})</h3>
+                <ul class="member-list" style="max-height: 150px; overflow:auto; margin-bottom: 1.25rem;">
+                    ${freeHtml}
+                </ul>
+                
+                <h3 class="detail-title"><i class="fa-solid fa-xmark" style="color: var(--color-danger); margin-right: 0.4rem;"></i> Bận (${busyMembers.length})</h3>
+                <ul class="member-list" style="max-height: 150px; overflow:auto;">
+                    ${busyHtml}
+                </ul>
             </div>
         `;
         return;
@@ -956,6 +988,162 @@ function updateAdminDetails() {
     `;
     
     detailsContent.innerHTML = htmlContent;
+}
+
+// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin
+function updateAdminSuggestions() {
+    if (!state.room) return;
+    const suggestionsContent = document.getElementById('admin-suggestions-content');
+    if (!suggestionsContent) return;
+
+    const members = Object.values(state.room.members);
+    if (members.length === 0) {
+        suggestionsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-users-slash"></i>
+                <p>Chưa có thành viên nào điền lịch biểu.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Lọc thành viên theo bộ lọc admin
+    const memberIds = state.adminFilters.memberIds;
+    const membersToConsider = memberIds.length > 0
+        ? members.filter(m => memberIds.includes(m.id))
+        : members;
+    
+    if (membersToConsider.length === 0) {
+        suggestionsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-users-slash"></i>
+                <p>Không có thành viên nào phù hợp bộ lọc.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const activeDays = getRoomDays();
+    const allSlots = [];
+
+    activeDays.forEach(day => {
+        HOURS.forEach(hour => {
+            let freeCount = 0;
+            const freeNames = [];
+            membersToConsider.forEach(m => {
+                if (m.schedule[day] && m.schedule[day].includes(hour)) {
+                    freeCount++;
+                    freeNames.push(m.name);
+                }
+            });
+            allSlots.push({
+                day,
+                hour,
+                freeCount,
+                freeNames,
+                total: membersToConsider.length
+            });
+        });
+    });
+
+    // Sắp xếp giảm dần theo số người rảnh
+    allSlots.sort((a, b) => b.freeCount - a.freeCount);
+
+    // Lấy top 3 khung giờ tối ưu (chỉ lấy nếu có ít nhất 1 người rảnh)
+    const topSlots = allSlots.filter(s => s.freeCount > 0).slice(0, 3);
+
+    if (topSlots.length === 0) {
+        suggestionsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-calendar-xmark"></i>
+                <p>Không tìm thấy khung giờ rảnh nào của nhóm.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Tính người rảnh nhất / tham gia tích cực nhất
+    const memberStats = membersToConsider.map(m => {
+        let count = 0;
+        activeDays.forEach(day => {
+            if (m.schedule[day]) {
+                count += m.schedule[day].length;
+            }
+        });
+        return { name: m.name, count };
+    });
+    memberStats.sort((a, b) => b.count - a.count);
+    const mostFlexibleMember = memberStats[0];
+
+    let html = `<div class="detail-section">`;
+    
+    html += `<h3 class="detail-title"><i class="fa-solid fa-trophy" style="color: #f59e0b; margin-right: 0.4rem;"></i> Top 3 khung giờ họp tối ưu nhất</h3>`;
+    html += `<ul class="member-list" style="margin-bottom: 1.25rem; max-height: none;">`;
+    
+    topSlots.forEach((slot, index) => {
+        const pct = Math.round((slot.freeCount / slot.total) * 100);
+        html += `
+            <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 1rem; border-left: 3px solid var(--color-success);">
+                <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour} - ${getNextHourString(slot.hour)}</strong>
+                    <span class="detail-badge slot-badge" style="margin: 0; font-size: 0.75rem;">${slot.freeCount}/${slot.total} người (${pct}%)</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                    <strong>Rảnh:</strong> ${slot.freeNames.join(', ')}
+                </div>
+            </li>
+        `;
+    });
+    html += `</ul>`;
+
+    if (mostFlexibleMember && mostFlexibleMember.count > 0) {
+        html += `<h3 class="detail-title"><i class="fa-solid fa-bolt" style="color: #06b6d4; margin-right: 0.4rem;"></i> Thành viên linh hoạt nhất</h3>`;
+        html += `
+            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 1.25rem; border-left: 3px solid #06b6d4;">
+                <span><strong>${mostFlexibleMember.name}</strong></span>
+                <span style="color: var(--text-secondary); font-size: 0.8rem;">Rảnh ${mostFlexibleMember.count} khung giờ</span>
+            </div>
+        `;
+    }
+
+    html += `
+        <button type="button" id="btn-copy-report" class="btn btn-primary btn-block">
+            <i class="fa-solid fa-copy"></i> Sao chép báo cáo tóm tắt
+        </button>
+    `;
+
+    html += `</div>`;
+    suggestionsContent.innerHTML = html;
+
+    // Attach click event for copy report button
+    const btnCopyReport = document.getElementById('btn-copy-report');
+    if (btnCopyReport) {
+        btnCopyReport.addEventListener('click', () => {
+            let reportText = `📊 BÁO CÁO LỊCH RẢNH TỔNG HỢP - ${state.room.name.toUpperCase()}\n`;
+            reportText += `--------------------------------------------------\n`;
+            reportText += `Top các khung giờ họp tối ưu nhất (nhiều người rảnh nhất):\n\n`;
+            
+            topSlots.forEach((slot, index) => {
+                const pct = Math.round((slot.freeCount / slot.total) * 100);
+                reportText += `${index + 1}. ${getRoomDayLabel(slot.day)} từ ${slot.hour} đến ${getNextHourString(slot.hour)}\n`;
+                reportText += `   👉 Số người rảnh: ${slot.freeCount}/${slot.total} (${pct}%)\n`;
+                reportText += `   👉 Thành viên rảnh: ${slot.freeNames.join(', ')}\n\n`;
+            });
+
+            if (mostFlexibleMember && mostFlexibleMember.count > 0) {
+                reportText += `👤 Thành viên rảnh nhiều nhất: ${mostFlexibleMember.name} (${mostFlexibleMember.count} khung giờ)\n`;
+            }
+            reportText += `--------------------------------------------------\n`;
+            reportText += `TeamSync - Lập lịch trực tuyến của bạn!`;
+
+            navigator.clipboard.writeText(reportText).then(() => {
+                showToast("Đã sao chép báo cáo lịch biểu vào bộ nhớ tạm!");
+            }).catch(err => {
+                console.error("Lỗi copy báo cáo:", err);
+                showToast("Lỗi sao chép báo cáo.", "error");
+            });
+        });
+    }
 }
 
 // Mở khóa giao diện Admin
