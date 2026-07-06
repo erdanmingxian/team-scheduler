@@ -6,7 +6,7 @@
  * Điền URL Realtime Database của bạn vào đây (ví dụ: "https://ten-du-an-default-rtdb.firebaseio.com/")
  * Nếu để trống "", ứng dụng sẽ chạy offline sử dụng bộ nhớ trình duyệt (localStorage).
  */
-const FIREBASE_DB_URL = "https://teamscheduledrat-default-rtdb.asia-southeast1.firebasedatabase.app/"; 
+const FIREBASE_DB_URL = ""; 
 
 // Cấu hình các ngày trong tuần và giờ làm việc (Từ 06:00 đến 00:00 tối)
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -137,16 +137,17 @@ let state = {
         timeRangeEnd: null,     // giờ kết thúc khoảng lọc (null = không lọc)
         activePreset: null      // tên preset đang kích hoạt
     },
-    selectedAdminCell: {
-        day: null,
-        hour: null
-    },
+    selectedAdminCells: [], // Array of {day, hour}
     isOfflineMode: true
 };
 
-// Biến điều khiển thao tác kéo chuột tô lịch
+// Biến điều khiển thao tác kéo chuột tô lịch (thành viên)
 let isDragging = false;
 let dragMode = null; // 'free' hoặc 'busy'
+
+// Biến điều khiển kéo chuột cho Admin
+let isAdminDragging = false;
+let adminDragMode = null; // 'select' hoặc 'deselect'
 
 // Khởi chạy khi trang tải xong
 document.addEventListener('DOMContentLoaded', () => {
@@ -834,19 +835,33 @@ function buildAdminGrid() {
             slotCell.setAttribute('data-admin-day', day);
             slotCell.setAttribute('data-admin-hour', hour);
             
-            slotCell.addEventListener('click', () => {
-                document.querySelectorAll('#admin-schedule-grid .grid-slot-cell').forEach(c => {
-                    c.classList.remove('selected-cell');
-                });
-                slotCell.classList.add('selected-cell');
-                
-                state.selectedAdminCell.day = day;
-                state.selectedAdminCell.hour = hour;
-                
-                // Do NOT modify state.adminFilters.days/hours or checkboxes here.
-                // Render grid & details (details will show member list for this cell)
+            slotCell.addEventListener('mousedown', (e) => {
+                isAdminDragging = true;
+                const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
+                if (isAlreadySelected) {
+                    adminDragMode = 'deselect';
+                    state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
+                } else {
+                    adminDragMode = 'select';
+                    state.selectedAdminCells.push({day, hour});
+                }
                 renderAdminGrid();
                 updateAdminDetails();
+                e.preventDefault();
+            });
+
+            slotCell.addEventListener('mouseover', () => {
+                if (!isAdminDragging) return;
+                const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
+                if (adminDragMode === 'select' && !isAlreadySelected) {
+                    state.selectedAdminCells.push({day, hour});
+                    renderAdminGrid();
+                    updateAdminDetails();
+                } else if (adminDragMode === 'deselect' && isAlreadySelected) {
+                    state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
+                    renderAdminGrid();
+                    updateAdminDetails();
+                }
             });
             
             grid.appendChild(slotCell);
@@ -881,7 +896,7 @@ function renderAdminGrid() {
         cell.style.backgroundColor = '';
         cell.style.color = '';
 
-        if (state.selectedAdminCell.day === day && state.selectedAdminCell.hour === hour) {
+        if (state.selectedAdminCells.some(c => c.day === day && c.hour === hour)) {
             cell.classList.add('selected-cell');
         }
 
@@ -1097,30 +1112,46 @@ function updateAdminDetails() {
     
     const hasFilter = memberIds.length > 0 || filteredDays.length > 0 || filteredHours.length > 0;
     
-    // If admin clicked a specific cell, show the list of members free and busy at that slot
-    if (state.selectedAdminCell.day && state.selectedAdminCell.hour) {
-        const day = state.selectedAdminCell.day;
-        const hour = state.selectedAdminCell.hour;
-        
+    // If admin selected one or more cells, show the list of members free in ALL those slots
+    if (state.selectedAdminCells && state.selectedAdminCells.length > 0) {
         const membersToConsider = memberIds.length > 0
             ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
             : Object.values(state.room.members);
         
-        const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
-        const busyMembers = membersToConsider.filter(m => !m.schedule[day] || !m.schedule[day].includes(hour));
+        // Free members: must be free in EVERY selected cell
+        const freeMembers = membersToConsider.filter(m => {
+            return state.selectedAdminCells.every(cell => m.schedule[cell.day] && m.schedule[cell.day].includes(cell.hour));
+        });
+        
+        // Busy members: busy in AT LEAST ONE selected cell
+        const busyMembers = membersToConsider.filter(m => {
+            return state.selectedAdminCells.some(cell => !m.schedule[cell.day] || !m.schedule[cell.day].includes(cell.hour));
+        });
         
         const freeHtml = freeMembers.length > 0
             ? freeMembers.map(m => `<li class="member-list-item free-member" style="border-left: 3px solid var(--color-success);"><span class="status-icon" style="color: var(--color-success); margin-right: 0.5rem;"><i class="fa-solid fa-circle-check"></i></span><strong>${m.name}</strong></li>`).join('')
-            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên rảnh.</p>';
+            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên rảnh toàn bộ thời gian chọn.</p>';
             
         const busyHtml = busyMembers.length > 0
             ? busyMembers.map(m => `<li class="member-list-item busy-member" style="border-left: 3px solid var(--color-danger); color: var(--text-muted);"><span class="status-icon" style="color: var(--color-danger); margin-right: 0.5rem;"><i class="fa-solid fa-circle-xmark"></i></span><strong>${m.name}</strong></li>`).join('')
             : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên bận.</p>';
         
+        // Sort selected cells by day then hour
+        const sortedCells = [...state.selectedAdminCells].sort((a, b) => {
+            if (a.day !== b.day) return getRoomDays().indexOf(a.day) - getRoomDays().indexOf(b.day);
+            return HOURS.indexOf(a.hour) - HOURS.indexOf(b.hour);
+        });
+        
+        // Display summary of selected slots
+        const selectedSummary = sortedCells.map(c => `<strong>${getRoomDayLabel(c.day)}</strong> ${c.hour}`).join('<br>');
+        const slotCountLabel = state.selectedAdminCells.length > 1 ? `<div style="font-size: 0.8rem; margin-top: 0.3rem;">(Đã chọn ${state.selectedAdminCells.length} khung giờ)</div>` : '';
+        
         detailsContent.innerHTML = `
             <div class="detail-section">
-                <div style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-primary); text-align: center;">
-                    <i class="fa-regular fa-clock" style="color: var(--color-success); margin-right: 0.4rem;"></i><strong>${getRoomDayLabel(day)}</strong> · ${hour} - ${getNextHourString(hour)}
+                <div style="margin-bottom: 1rem; font-size: 0.95rem; color: var(--text-primary); text-align: center;">
+                    <i class="fa-regular fa-clock" style="color: var(--color-success); margin-right: 0.4rem;"></i>
+                    ${selectedSummary}
+                    ${slotCountLabel}
                 </div>
                 
                 <h3 class="detail-title" style="margin-top: 0.5rem;"><i class="fa-solid fa-check" style="color: var(--color-success); margin-right: 0.4rem;"></i> Rảnh (${freeMembers.length})</h3>
@@ -1424,47 +1455,39 @@ function updateAdminSuggestions() {
 function findConsecutiveBlocks(members, activeDays, activeHours, minDur) {
     const blocks = [];
     activeDays.forEach(day => {
-        let i = 0;
-        while (i < activeHours.length) {
-            const hour = activeHours[i];
-            const freeAtHour = members.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
-            if (freeAtHour.length === 0) { i++; continue; }
-
-            // Mở rộng block sang các giờ tiếp theo nếu có ít nhất 1 người cùng rảnh
-            let blockEnd = i;
-            const blockFreeSet = new Set(freeAtHour.map(m => m.id));
-            const blockFreeNames = new Set(freeAtHour.map(m => m.name));
-            let totalFree = freeAtHour.length;
-            let slotCount = 1;
-
-            while (blockEnd + 1 < activeHours.length) {
-                const nextHour = activeHours[blockEnd + 1];
-                // Kiểm tra giờ tiếp theo có liền kề không (index liên tiếp trong HOURS)
-                const curIdx = HOURS.indexOf(activeHours[blockEnd]);
-                const nextIdx = HOURS.indexOf(nextHour);
-                if (nextIdx !== curIdx + 1) break;
-
-                const freeNext = members.filter(m => m.schedule[day] && m.schedule[day].includes(nextHour));
-                if (freeNext.length === 0) break;
-                blockEnd++;
-                freeNext.forEach(m => { blockFreeSet.add(m.id); blockFreeNames.add(m.name); });
-                totalFree += freeNext.length;
-                slotCount++;
+        for (let i = 0; i <= activeHours.length - minDur; i++) {
+            // Check if minDur slots starting at i are consecutive
+            let isConsecutive = true;
+            for (let k = 0; k < minDur - 1; k++) {
+                if (HOURS.indexOf(activeHours[i + k + 1]) !== HOURS.indexOf(activeHours[i + k]) + 1) {
+                    isConsecutive = false;
+                    break;
+                }
             }
-
-            const duration = blockEnd - i + 1;
-            if (duration >= minDur) {
+            if (!isConsecutive) continue;
+            
+            // Find intersection of free members across these minDur slots
+            let freeMembers = members.filter(m => {
+                for (let k = 0; k < minDur; k++) {
+                    if (!m.schedule[day] || !m.schedule[day].includes(activeHours[i + k])) return false;
+                }
+                return true;
+            });
+            
+            if (freeMembers.length > 0) {
                 blocks.push({
                     day,
                     startHour: activeHours[i],
-                    duration,
-                    avgFree: totalFree / duration,
-                    freeNames: [...blockFreeNames].join(', ')
+                    duration: minDur,
+                    avgFree: freeMembers.length,
+                    freeNames: freeMembers.map(m => m.name)
                 });
             }
-            i = blockEnd + 1;
         }
     });
+    
+    // Remove duplicate blocks if they have the exact same members and overlap
+    // But since they are all exactly length minDur, it's fine to just return them.
     return blocks;
 }
 
@@ -1789,8 +1812,7 @@ function setupGlobalEventListeners() {
             state.adminFilters.timeRangeStart = null;
             state.adminFilters.timeRangeEnd = null;
             state.adminFilters.activePreset = null;
-            state.selectedAdminCell.day = null;
-            state.selectedAdminCell.hour = null;
+            state.selectedAdminCells = [];
             
             // Reset member checkboxes
             const memberAllCb = document.getElementById('admin-filter-member-all');
@@ -1884,6 +1906,8 @@ function setupGlobalEventListeners() {
     window.addEventListener('mouseup', () => {
         isDragging = false;
         dragMode = null;
+        isAdminDragging = false;
+        adminDragMode = null;
     });
 }
 
