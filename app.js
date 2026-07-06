@@ -127,9 +127,15 @@ let state = {
     currentMemberId: null,
     isAdminUnlocked: false,
     adminFilters: {
-        memberIds: [],    // [] = tất cả; [id1, id2] = lọc những id này
-        days: [],         // [] = tất cả; ['Monday', ...] = lọc các ngày
-        hours: []         // [] = tất cả; ['08:00', ...] = lọc các giờ
+        memberIds: [],          // [] = tất cả; [id1, id2] = lọc những id này
+        mandatoryMemberIds: [], // [id1, ...] = bắt buộc các thành viên này phải rảnh
+        days: [],               // [] = tất cả; ['Monday', ...] = lọc các ngày
+        hours: [],              // [] = tất cả; ['08:00', ...] = lọc các giờ
+        minFree: 0,             // 0 = không lọc; K = chỉ hiện các ô có >= K người rảnh
+        minDuration: 1,         // số khung giờ liên tiếp tối thiểu (1 = mặc định)
+        timeRangeStart: null,   // giờ bắt đầu khoảng lọc (null = không lọc)
+        timeRangeEnd: null,     // giờ kết thúc khoảng lọc (null = không lọc)
+        activePreset: null      // tên preset đang kích hoạt
     },
     selectedAdminCell: {
         day: null,
@@ -425,6 +431,7 @@ async function initRoomView() {
     buildMemberGrid();
     buildAdminGrid();
     populateAdminHoursList();
+    populateTimeRangeSelects();
     
     // Tải dữ liệu phòng
     const success = await loadRoomData();
@@ -516,6 +523,12 @@ function updateMemberCounts() {
     const count = Object.keys(state.room.members).length;
     document.getElementById('member-count-value').textContent = count;
     document.getElementById('admin-total-members-count').textContent = count;
+    
+    // Cập nhật giới hạn tối đa cho thanh trượt lọc số người rảnh tối thiểu
+    const sliderMinFree = document.getElementById('admin-filter-min-free');
+    if (sliderMinFree) {
+        sliderMinFree.max = count;
+    }
 }
 
 // Cập nhật danh sách thả xuống ở tab Thành viên + danh sách checkbox Admin
@@ -546,8 +559,44 @@ function updateMemberDropdowns() {
         lbl.className = 'check-item-label';
         lbl.dataset.memberId = member.id;
         const isChecked = state.adminFilters.memberIds.length === 0 || state.adminFilters.memberIds.includes(member.id);
-        lbl.innerHTML = `<input type="checkbox" class="admin-member-check" value="${member.id}" ${isChecked ? 'checked' : ''}><span>${member.name}</span>`;
+        const isMandatory = state.adminFilters.mandatoryMemberIds.includes(member.id);
+        
+        lbl.innerHTML = `
+            <input type="checkbox" class="admin-member-check" value="${member.id}" ${isChecked ? 'checked' : ''}>
+            <span class="member-name-span">${member.name}</span>
+            <button type="button" class="btn-toggle-mandatory ${isMandatory ? 'is-active' : ''}" title="Đánh dấu bắt buộc có mặt" data-id="${member.id}">
+                <i class="${isMandatory ? 'fa-solid' : 'fa-regular'} fa-star star-icon"></i>
+            </button>
+        `;
+        
         if (isChecked && state.adminFilters.memberIds.length > 0) lbl.classList.add('is-selected');
+        if (isMandatory) lbl.classList.add('has-mandatory');
+        
+        // Gắn sự kiện click cho ngôi sao trực tiếp tại đây
+        const starBtn = lbl.querySelector('.btn-toggle-mandatory');
+        starBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = starBtn.dataset.id;
+            const starIcon = starBtn.querySelector('.star-icon');
+            
+            const idx = state.adminFilters.mandatoryMemberIds.indexOf(id);
+            if (idx > -1) {
+                state.adminFilters.mandatoryMemberIds.splice(idx, 1);
+                starBtn.classList.remove('is-active');
+                starIcon.className = 'fa-regular fa-star star-icon';
+                lbl.classList.remove('has-mandatory');
+            } else {
+                state.adminFilters.mandatoryMemberIds.push(id);
+                starBtn.classList.add('is-active');
+                starIcon.className = 'fa-solid fa-star star-icon';
+                lbl.classList.add('has-mandatory');
+            }
+            
+            renderAdminGrid();
+            updateAdminDetails();
+        });
+
         membersList.appendChild(lbl);
     });
     
@@ -799,41 +848,38 @@ function buildAdminGrid() {
 function renderAdminGrid() {
     if (!state.room) return;
     const cells = document.querySelectorAll('#admin-schedule-grid .admin-cell');
-    
+
     // Xác định thành viên cần hiển thị
     const memberIds = state.adminFilters.memberIds;
     const membersToShow = memberIds.length > 0
         ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
         : Object.values(state.room.members);
     const effectiveTotal = membersToShow.length;
-    
+
     // Xác định ngày và giờ cần hiển thị
     const filteredDays = state.adminFilters.days;
     const filteredHours = state.adminFilters.hours;
-    
+
+    // Tìm top slots để highlight (best-slot)
+    const bestSlotKeys = computeBestSlotKeys(membersToShow, filteredDays, filteredHours);
+
     cells.forEach(cell => {
         const day = cell.getAttribute('data-admin-day');
         const hour = cell.getAttribute('data-admin-hour');
-        
+
         // Reset classes and inline styles
         cell.className = 'grid-slot-cell admin-cell';
         cell.style.backgroundColor = '';
         cell.style.color = '';
-        
+
         if (state.selectedAdminCell.day === day && state.selectedAdminCell.hour === hour) {
             cell.classList.add('selected-cell');
         }
-        
+
         // Highlight filtered days/hours (make non-filtered ones faded)
         const isDayFiltered = filteredDays.length > 0 && !filteredDays.includes(day);
         const isHourFiltered = filteredHours.length > 0 && !filteredHours.includes(hour);
-        
-        if (isDayFiltered || isHourFiltered) {
-            cell.style.opacity = '0.25';
-        } else {
-            cell.style.opacity = '';
-        }
-        
+
         // Tính số người rảnh trong nhóm được lọc
         let freeCount = 0;
         membersToShow.forEach(member => {
@@ -841,12 +887,40 @@ function renderAdminGrid() {
                 freeCount++;
             }
         });
-        
-        cell.textContent = freeCount > 0 ? freeCount : '';
-        
+
+        // Kiểm tra xem các thành viên bắt buộc có mặt (Mandatory Members) có rảnh không
+        const mandatoryMemberIds = state.adminFilters.mandatoryMemberIds;
+        let isMandatoryMissing = false;
+        if (mandatoryMemberIds.length > 0) {
+            isMandatoryMissing = mandatoryMemberIds.some(id => {
+                const member = state.room.members[id];
+                return !member || !member.schedule[day] || !member.schedule[day].includes(hour);
+            });
+        }
+
+        // Lọc theo số người rảnh tối thiểu (Min Availability)
+        const isBelowMinFree = freeCount < state.adminFilters.minFree;
+
+        // Kiểm tra lọc theo minDuration (consecutive block)
+        const minDur = state.adminFilters.minDuration || 1;
+        let isConsecutiveShort = false;
+        if (minDur > 1 && freeCount > 0 && !isMandatoryMissing && !isBelowMinFree && !isDayFiltered && !isHourFiltered) {
+            // Kiểm tra xem ô này có nằm trong block liên tiếp đủ dài không
+            isConsecutiveShort = !isInConsecutiveBlock(membersToShow, day, hour, state.adminFilters.minFree || 1, minDur);
+        }
+
+        // Cập nhật hiển thị text
+        if (isMandatoryMissing) {
+            cell.textContent = '🔒';
+        } else if (isBelowMinFree || isConsecutiveShort) {
+            cell.textContent = '';
+        } else {
+            cell.textContent = freeCount > 0 ? freeCount : '';
+        }
+
         // Áp dụng màu sắc dựa trên 60 cấp độ của palette
         let colorIndex = 0;
-        if (effectiveTotal > 0 && freeCount > 0) {
+        if (effectiveTotal > 0 && freeCount > 0 && !isMandatoryMissing && !isBelowMinFree && !isConsecutiveShort) {
             if (effectiveTotal <= 60) {
                 colorIndex = freeCount;
             } else {
@@ -856,9 +930,147 @@ function renderAdminGrid() {
             }
             colorIndex = Math.min(59, Math.max(0, colorIndex));
         }
-        
+
         cell.style.backgroundColor = PALETTE[colorIndex];
         cell.style.color = colorIndex >= 25 ? '#f8fafc' : '#1a0a2e';
+
+        // Điều chỉnh độ mờ (opacity) dựa trên các bộ lọc
+        if (isDayFiltered || isHourFiltered || isMandatoryMissing || isBelowMinFree || isConsecutiveShort) {
+            cell.style.opacity = '0.12';
+        } else {
+            cell.style.opacity = '';
+        }
+
+        // Best slot highlight
+        const slotKey = `${day}__${hour}`;
+        if (bestSlotKeys.has(slotKey) && !isDayFiltered && !isHourFiltered && !isMandatoryMissing && !isBelowMinFree && !isConsecutiveShort) {
+            cell.classList.add('best-slot');
+        }
+    });
+
+    // Render heatmap sau khi cập nhật grid
+    renderHeatmap(membersToShow, filteredDays, filteredHours);
+}
+
+// Kiểm tra xem khung giờ (day, hour) có nằm trong 1 block liên tiếp >= minDur khung của >= minPeople người không
+function isInConsecutiveBlock(members, day, hour, minPeople, minDur) {
+    const hourIndex = HOURS.indexOf(hour);
+    if (hourIndex === -1) return false;
+
+    // Tìm block bắt đầu sớm nhất có thể chứa giờ này
+    for (let start = Math.max(0, hourIndex - minDur + 1); start <= hourIndex; start++) {
+        let blockOk = true;
+        for (let k = 0; k < minDur; k++) {
+            const h = HOURS[start + k];
+            if (!h) { blockOk = false; break; }
+            const cnt = members.filter(m => m.schedule[day] && m.schedule[day].includes(h)).length;
+            if (cnt < minPeople) { blockOk = false; break; }
+        }
+        if (blockOk) return true;
+    }
+    return false;
+}
+
+// Tính top N slot keys để highlight best-slot
+function computeBestSlotKeys(members, filteredDays, filteredHours) {
+    if (members.length === 0) return new Set();
+    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
+    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
+    const slots = [];
+    activeDays.forEach(day => {
+        activeHours.forEach(hour => {
+            const cnt = members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
+            if (cnt > 0) slots.push({ key: `${day}__${hour}`, cnt });
+        });
+    });
+    slots.sort((a, b) => b.cnt - a.cnt);
+    const topCnt = slots.length > 0 ? slots[0].cnt : 0;
+    // Highlight tất cả ô có cnt == topCnt (có thể nhiều hơn 3)
+    const topKeys = new Set();
+    for (const s of slots) {
+        if (s.cnt === topCnt) topKeys.add(s.key);
+        if (topKeys.size >= 5) break;
+    }
+    return topKeys;
+}
+
+// Render heatmap bars (day & hour)
+function renderHeatmap(members, filteredDays, filteredHours) {
+    const daysEl = document.getElementById('heatmap-days-bars');
+    const hoursEl = document.getElementById('heatmap-hours-bars');
+    if (!daysEl || !hoursEl) return;
+
+    const activeDays = getRoomDays();
+    const activeHours = HOURS;
+
+    // Day stats
+    const dayStats = activeDays.map(day => {
+        let total = 0;
+        activeHours.forEach(hour => {
+            total += members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
+        });
+        return { label: getRoomDayLabel(day).replace('Thứ ', 'T').replace('Chủ Nhật', 'CN'), value: total, day };
+    });
+    const maxDay = Math.max(...dayStats.map(d => d.value), 1);
+
+    daysEl.innerHTML = '';
+    dayStats.forEach(d => {
+        const pct = Math.round((d.value / maxDay) * 100);
+        const isFiltered = filteredDays.length > 0 && !filteredDays.includes(d.day);
+        const wrap = document.createElement('div');
+        wrap.className = 'heatmap-bar-wrap';
+        const bar = document.createElement('div');
+        bar.className = 'heatmap-bar';
+        bar.style.height = `${Math.max(2, pct * 0.38)}px`;
+        bar.style.background = isFiltered
+            ? 'rgba(255,255,255,0.08)'
+            : `rgba(70,72,152, ${0.2 + 0.8 * (d.value / maxDay)})`;
+        bar.title = `${d.label}: ${d.value} lượt rảnh`;
+        const lbl = document.createElement('div');
+        lbl.className = 'heatmap-bar-label';
+        lbl.textContent = d.label;
+        const cnt = document.createElement('div');
+        cnt.className = 'heatmap-bar-count';
+        cnt.textContent = d.value > 0 ? d.value : '';
+        wrap.appendChild(bar);
+        wrap.appendChild(lbl);
+        wrap.appendChild(cnt);
+        daysEl.appendChild(wrap);
+    });
+
+    // Hour stats
+    const hourStats = activeHours.map(hour => {
+        let total = 0;
+        activeDays.forEach(day => {
+            total += members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
+        });
+        return { label: hour.replace(':00', 'h'), value: total, hour };
+    });
+    const maxHour = Math.max(...hourStats.map(h => h.value), 1);
+
+    hoursEl.innerHTML = '';
+    hourStats.forEach(h => {
+        const pct = Math.round((h.value / maxHour) * 100);
+        const isFiltered = filteredHours.length > 0 && !filteredHours.includes(h.hour);
+        const wrap = document.createElement('div');
+        wrap.className = 'heatmap-bar-wrap';
+        const bar = document.createElement('div');
+        bar.className = 'heatmap-bar';
+        bar.style.height = `${Math.max(2, pct * 0.38)}px`;
+        bar.style.background = isFiltered
+            ? 'rgba(255,255,255,0.08)'
+            : `rgba(145,178,203, ${0.15 + 0.85 * (h.value / maxHour)})`;
+        bar.title = `${h.label}: ${h.value} lượt rảnh`;
+        const lbl = document.createElement('div');
+        lbl.className = 'heatmap-bar-label';
+        lbl.textContent = h.label;
+        const cnt = document.createElement('div');
+        cnt.className = 'heatmap-bar-count';
+        cnt.textContent = h.value > 0 ? h.value : '';
+        wrap.appendChild(bar);
+        wrap.appendChild(lbl);
+        wrap.appendChild(cnt);
+        hoursEl.appendChild(wrap);
     });
 }
 
@@ -990,7 +1202,7 @@ function updateAdminDetails() {
     detailsContent.innerHTML = htmlContent;
 }
 
-// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin
+// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin - NÂNG CẤP với block grouping
 function updateAdminSuggestions() {
     if (!state.room) return;
     const suggestionsContent = document.getElementById('admin-suggestions-content');
@@ -1012,7 +1224,7 @@ function updateAdminSuggestions() {
     const membersToConsider = memberIds.length > 0
         ? members.filter(m => memberIds.includes(m.id))
         : members;
-    
+
     if (membersToConsider.length === 0) {
         suggestionsContent.innerHTML = `
             <div class="empty-state">
@@ -1023,11 +1235,14 @@ function updateAdminSuggestions() {
         return;
     }
 
-    const activeDays = getRoomDays();
-    const allSlots = [];
+    const activeDays = state.adminFilters.days.length > 0 ? state.adminFilters.days : getRoomDays();
+    const activeHours = state.adminFilters.hours.length > 0 ? state.adminFilters.hours : HOURS;
+    const minDur = state.adminFilters.minDuration || 1;
 
+    // Tính slot scores
+    const allSlots = [];
     activeDays.forEach(day => {
-        HOURS.forEach(hour => {
+        activeHours.forEach(hour => {
             let freeCount = 0;
             const freeNames = [];
             membersToConsider.forEach(m => {
@@ -1036,72 +1251,117 @@ function updateAdminSuggestions() {
                     freeNames.push(m.name);
                 }
             });
-            allSlots.push({
-                day,
-                hour,
-                freeCount,
-                freeNames,
-                total: membersToConsider.length
-            });
+            allSlots.push({ day, hour, freeCount, freeNames, total: membersToConsider.length });
         });
     });
 
-    // Sắp xếp giảm dần theo số người rảnh
-    allSlots.sort((a, b) => b.freeCount - a.freeCount);
+    // Tìm các BLOCK liên tiếp (nhóm khung giờ liên tiếp cùng ngày)
+    const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDur);
 
-    // Lấy top 3 khung giờ tối ưu (chỉ lấy nếu có ít nhất 1 người rảnh)
-    const topSlots = allSlots.filter(s => s.freeCount > 0).slice(0, 3);
+    // Sắp xếp block theo score (avgFreeCount * duration)
+    blocks.sort((a, b) => (b.avgFree * b.duration) - (a.avgFree * a.duration));
 
-    if (topSlots.length === 0) {
+    // Top 5 blocks tốt nhất
+    const topBlocks = blocks.filter(b => b.avgFree > 0).slice(0, 5);
+
+    // Fallback: nếu minDur=1 hoặc không có block đủ dài, hiện slot đơn
+    let topSlots = [];
+    if (topBlocks.length === 0) {
+        allSlots.sort((a, b) => b.freeCount - a.freeCount);
+        topSlots = allSlots.filter(s => s.freeCount > 0).slice(0, 5);
+    }
+
+    if (topBlocks.length === 0 && topSlots.length === 0) {
         suggestionsContent.innerHTML = `
             <div class="empty-state">
                 <i class="fa-solid fa-calendar-xmark"></i>
-                <p>Không tìm thấy khung giờ rảnh nào của nhóm.</p>
+                <p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p>
             </div>
         `;
         return;
     }
 
-    // Tính người rảnh nhất / tham gia tích cực nhất
+    // Tính thành viên linh hoạt nhất
     const memberStats = membersToConsider.map(m => {
         let count = 0;
-        activeDays.forEach(day => {
-            if (m.schedule[day]) {
-                count += m.schedule[day].length;
-            }
-        });
+        activeDays.forEach(day => { if (m.schedule[day]) count += m.schedule[day].length; });
         return { name: m.name, count };
     });
     memberStats.sort((a, b) => b.count - a.count);
     const mostFlexibleMember = memberStats[0];
 
+    // Tính thành viên khó xếp lịch nhất (ít rảnh nhất)
+    const leastFlexible = memberStats[memberStats.length - 1];
+
     let html = `<div class="detail-section">`;
-    
-    html += `<h3 class="detail-title"><i class="fa-solid fa-trophy" style="color: #f59e0b; margin-right: 0.4rem;"></i> Top 3 khung giờ họp tối ưu nhất</h3>`;
+    html += `<h3 class="detail-title"><i class="fa-solid fa-trophy" style="color: #eab308; margin-right: 0.4rem;"></i> Top ${topBlocks.length > 0 ? topBlocks.length : topSlots.length} Khung Giờ Tối Ưu Nhất</h3>`;
     html += `<ul class="member-list" style="margin-bottom: 1.25rem; max-height: none;">`;
-    
-    topSlots.forEach((slot, index) => {
-        const pct = Math.round((slot.freeCount / slot.total) * 100);
-        html += `
-            <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 1rem; border-left: 3px solid var(--color-success);">
-                <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                    <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour} - ${getNextHourString(slot.hour)}</strong>
-                    <span class="detail-badge slot-badge" style="margin: 0; font-size: 0.75rem;">${slot.freeCount}/${slot.total} người (${pct}%)</span>
-                </div>
-                <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                    <strong>Rảnh:</strong> ${slot.freeNames.join(', ')}
-                </div>
-            </li>
-        `;
-    });
+
+    if (topBlocks.length > 0) {
+        topBlocks.forEach((block, index) => {
+            const pct = Math.round((block.avgFree / membersToConsider.length) * 100);
+            const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
+            const tierIcon = pct >= 100 ? '🥇' : pct >= 70 ? '🥈' : '🥉';
+            const endHour = HOURS[HOURS.indexOf(block.startHour) + block.duration] || '00:00';
+            html += `
+                <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
+                    <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <strong style="color: var(--text-primary);">${tierIcon} #${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${endHour}</strong>
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <span class="block-duration-tag">${block.duration}h liên tiếp</span>
+                            <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        <strong>Rảnh trung bình:</strong> ${block.avgFree.toFixed(1)}/${membersToConsider.length} người · ${block.freeNames.join(', ')}
+                    </div>
+                    <div class="suggestion-progress-wrap">
+                        <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
+                    </div>
+                </li>
+            `;
+        });
+    } else {
+        topSlots.forEach((slot, index) => {
+            const pct = Math.round((slot.freeCount / slot.total) * 100);
+            const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
+            const tierIcon = pct >= 100 ? '🥇' : pct >= 70 ? '🥈' : '🥉';
+            html += `
+                <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 1rem; border-left: 3px solid var(--color-success);">
+                    <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <strong style="color: var(--text-primary);">${tierIcon} #${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
+                        <span class="suggestion-tier-badge tier-badge-${tier}">${slot.freeCount}/${slot.total} (${pct}%)</span>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        <strong>Rảnh:</strong> ${slot.freeNames.join(', ')}
+                    </div>
+                    <div class="suggestion-progress-wrap">
+                        <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
+                    </div>
+                </li>
+            `;
+        });
+    }
     html += `</ul>`;
 
+    // Thành viên linh hoạt nhất
     if (mostFlexibleMember && mostFlexibleMember.count > 0) {
         html += `<h3 class="detail-title"><i class="fa-solid fa-bolt" style="color: #06b6d4; margin-right: 0.4rem;"></i> Thành viên linh hoạt nhất</h3>`;
         html += `
-            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 1.25rem; border-left: 3px solid #06b6d4;">
+            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-left: 3px solid #06b6d4; gap: 0.5rem;">
                 <span><strong>${mostFlexibleMember.name}</strong></span>
                 <span style="color: var(--text-secondary); font-size: 0.8rem;">Rảnh ${mostFlexibleMember.count} khung giờ</span>
+            </div>
+        `;
+    }
+
+    // Thành viên khó xếp nhất (nếu khác người trên)
+    if (leastFlexible && leastFlexible.name !== mostFlexibleMember?.name) {
+        html += `<h3 class="detail-title"><i class="fa-solid fa-calendar-xmark" style="color: #f43f5e; margin-right: 0.4rem;"></i> Thành viên ít rảnh nhất</h3>`;
+        html += `
+            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 1rem; border-left: 3px solid #f43f5e; gap: 0.5rem;">
+                <span><strong>${leastFlexible.name}</strong></span>
+                <span style="color: var(--text-secondary); font-size: 0.8rem;">Chỉ rảnh ${leastFlexible.count} khung giờ</span>
             </div>
         `;
     }
@@ -1111,25 +1371,33 @@ function updateAdminSuggestions() {
             <i class="fa-solid fa-copy"></i> Sao chép báo cáo tóm tắt
         </button>
     `;
-
     html += `</div>`;
     suggestionsContent.innerHTML = html;
 
-    // Attach click event for copy report button
+    // Attach copy report
     const btnCopyReport = document.getElementById('btn-copy-report');
     if (btnCopyReport) {
         btnCopyReport.addEventListener('click', () => {
             let reportText = `📊 BÁO CÁO LỊCH RẢNH TỔNG HỢP - ${state.room.name.toUpperCase()}\n`;
             reportText += `--------------------------------------------------\n`;
-            reportText += `Top các khung giờ họp tối ưu nhất (nhiều người rảnh nhất):\n\n`;
-            
-            topSlots.forEach((slot, index) => {
-                const pct = Math.round((slot.freeCount / slot.total) * 100);
-                reportText += `${index + 1}. ${getRoomDayLabel(slot.day)} từ ${slot.hour} đến ${getNextHourString(slot.hour)}\n`;
-                reportText += `   👉 Số người rảnh: ${slot.freeCount}/${slot.total} (${pct}%)\n`;
-                reportText += `   👉 Thành viên rảnh: ${slot.freeNames.join(', ')}\n\n`;
-            });
+            reportText += `Top khung giờ họp tối ưu nhất:\n\n`;
 
+            if (topBlocks.length > 0) {
+                topBlocks.forEach((block, index) => {
+                    const pct = Math.round((block.avgFree / membersToConsider.length) * 100);
+                    const endHour = HOURS[HOURS.indexOf(block.startHour) + block.duration] || '00:00';
+                    reportText += `${index + 1}. ${getRoomDayLabel(block.day)} từ ${block.startHour} đến ${endHour} (${block.duration}h liên tiếp)\n`;
+                    reportText += `   👉 Trung bình: ${block.avgFree.toFixed(1)}/${membersToConsider.length} (${pct}%)\n`;
+                    reportText += `   👉 Thành viên rảnh: ${block.freeNames}\n\n`;
+                });
+            } else {
+                topSlots.forEach((slot, index) => {
+                    const pct = Math.round((slot.freeCount / slot.total) * 100);
+                    reportText += `${index + 1}. ${getRoomDayLabel(slot.day)} từ ${slot.hour} đến ${getNextHourString(slot.hour)}\n`;
+                    reportText += `   👉 Số người rảnh: ${slot.freeCount}/${slot.total} (${pct}%)\n`;
+                    reportText += `   👉 Thành viên rảnh: ${slot.freeNames.join(', ')}\n\n`;
+                });
+            }
             if (mostFlexibleMember && mostFlexibleMember.count > 0) {
                 reportText += `👤 Thành viên rảnh nhiều nhất: ${mostFlexibleMember.name} (${mostFlexibleMember.count} khung giờ)\n`;
             }
@@ -1138,12 +1406,57 @@ function updateAdminSuggestions() {
 
             navigator.clipboard.writeText(reportText).then(() => {
                 showToast("Đã sao chép báo cáo lịch biểu vào bộ nhớ tạm!");
-            }).catch(err => {
-                console.error("Lỗi copy báo cáo:", err);
-                showToast("Lỗi sao chép báo cáo.", "error");
-            });
+            }).catch(() => showToast("Lỗi sao chép báo cáo.", "error"));
         });
     }
+}
+
+// Tìm các block giờ liên tiếp đủ dài (>= minDur) mà mỗi ô có >= 1 người rảnh
+function findConsecutiveBlocks(members, activeDays, activeHours, minDur) {
+    const blocks = [];
+    activeDays.forEach(day => {
+        let i = 0;
+        while (i < activeHours.length) {
+            const hour = activeHours[i];
+            const freeAtHour = members.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+            if (freeAtHour.length === 0) { i++; continue; }
+
+            // Mở rộng block sang các giờ tiếp theo nếu có ít nhất 1 người cùng rảnh
+            let blockEnd = i;
+            const blockFreeSet = new Set(freeAtHour.map(m => m.id));
+            const blockFreeNames = new Set(freeAtHour.map(m => m.name));
+            let totalFree = freeAtHour.length;
+            let slotCount = 1;
+
+            while (blockEnd + 1 < activeHours.length) {
+                const nextHour = activeHours[blockEnd + 1];
+                // Kiểm tra giờ tiếp theo có liền kề không (index liên tiếp trong HOURS)
+                const curIdx = HOURS.indexOf(activeHours[blockEnd]);
+                const nextIdx = HOURS.indexOf(nextHour);
+                if (nextIdx !== curIdx + 1) break;
+
+                const freeNext = members.filter(m => m.schedule[day] && m.schedule[day].includes(nextHour));
+                if (freeNext.length === 0) break;
+                blockEnd++;
+                freeNext.forEach(m => { blockFreeSet.add(m.id); blockFreeNames.add(m.name); });
+                totalFree += freeNext.length;
+                slotCount++;
+            }
+
+            const duration = blockEnd - i + 1;
+            if (duration >= minDur) {
+                blocks.push({
+                    day,
+                    startHour: activeHours[i],
+                    duration,
+                    avgFree: totalFree / duration,
+                    freeNames: [...blockFreeNames].join(', ')
+                });
+            }
+            i = blockEnd + 1;
+        }
+    });
+    return blocks;
 }
 
 // Mở khóa giao diện Admin
@@ -1311,11 +1624,144 @@ function setupGlobalEventListeners() {
     // Hour checkboxes
     setupHourCheckboxEvents();
     
+    // Setup quick hour filter session buttons
+    const morningBtn = document.getElementById('btn-filter-morning');
+    const afternoonBtn = document.getElementById('btn-filter-afternoon');
+    const eveningBtn = document.getElementById('btn-filter-evening');
+    
+    function filterHoursBySession(session) {
+        const morningHours = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
+        const afternoonHours = ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+        const eveningHours = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+        
+        let targetHours = [];
+        if (session === 'morning') targetHours = morningHours;
+        else if (session === 'afternoon') targetHours = afternoonHours;
+        else if (session === 'evening') targetHours = eveningHours;
+        
+        const allHourCb = document.getElementById('admin-filter-hour-all');
+        if (allHourCb) allHourCb.checked = false;
+        
+        const hourCbs = document.querySelectorAll('.admin-hour-check');
+        hourCbs.forEach(cb => {
+            const isMatch = targetHours.includes(cb.value);
+            cb.checked = isMatch;
+            const label = cb.closest('.check-item-label');
+            if (isMatch) {
+                label?.classList.add('is-selected');
+            } else {
+                label?.classList.remove('is-selected');
+            }
+        });
+        
+        state.adminFilters.hours = targetHours;
+        renderAdminGrid();
+        updateAdminDetails();
+    }
+    
+    if (morningBtn) morningBtn.addEventListener('click', () => filterHoursBySession('morning'));
+    if (afternoonBtn) afternoonBtn.addEventListener('click', () => filterHoursBySession('afternoon'));
+    if (eveningBtn) eveningBtn.addEventListener('click', () => filterHoursBySession('evening'));
+    
+    // Setup min availability range slider listener
+    const sliderMinFree = document.getElementById('admin-filter-min-free');
+    const labelMinFreeVal = document.getElementById('admin-filter-min-free-val');
+    
+    if (sliderMinFree && labelMinFreeVal) {
+        sliderMinFree.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.adminFilters.minFree = val;
+            if (val === 0) {
+                labelMinFreeVal.textContent = "Tất cả";
+            } else {
+                labelMinFreeVal.textContent = `>= ${val} người`;
+            }
+            renderAdminGrid();
+            updateAdminDetails();
+        });
+    }
+
+    // Duration buttons
+    document.querySelectorAll('.btn-duration').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.btn-duration').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.adminFilters.minDuration = parseInt(btn.getAttribute('data-dur')) || 1;
+            renderAdminGrid();
+            updateAdminDetails();
+        });
+    });
+
+    // Time range selects
+    const timeStartSel = document.getElementById('filter-time-start');
+    const timeEndSel = document.getElementById('filter-time-end');
+    function applyTimeRange() {
+        const startVal = timeStartSel ? timeStartSel.value : '';
+        const endVal = timeEndSel ? timeEndSel.value : '';
+        if (!startVal && !endVal) {
+            state.adminFilters.hours = [];
+        } else {
+            const startIdx = startVal ? HOURS.indexOf(startVal) : 0;
+            const endIdx = endVal ? HOURS.indexOf(endVal) : HOURS.length - 1;
+            if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
+                state.adminFilters.hours = HOURS.slice(startIdx, endIdx + 1);
+                // Sync hour checkboxes
+                const allHourCb = document.getElementById('admin-filter-hour-all');
+                if (allHourCb) allHourCb.checked = false;
+                document.querySelectorAll('.admin-hour-check').forEach(cb => {
+                    const inRange = state.adminFilters.hours.includes(cb.value);
+                    cb.checked = inRange;
+                    cb.closest('.check-item-label')?.classList.toggle('is-selected', inRange);
+                });
+            }
+        }
+        renderAdminGrid();
+        updateAdminDetails();
+    }
+    if (timeStartSel) timeStartSel.addEventListener('change', applyTimeRange);
+    if (timeEndSel) timeEndSel.addEventListener('change', applyTimeRange);
+
+    // Weekday / Weekend quick filter
+    const btnWeekdays = document.getElementById('btn-filter-weekdays');
+    const btnWeekends = document.getElementById('btn-filter-weekends');
+    const WEEKDAY_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const WEEKEND_DAYS = ['Saturday', 'Sunday'];
+
+    function filterByDayGroup(targetDays) {
+        const activeDays = getRoomDays();
+        const matchDays = targetDays.filter(d => activeDays.includes(d));
+        const allDayCb = document.getElementById('admin-filter-day-all');
+        if (allDayCb) allDayCb.checked = false;
+        document.querySelectorAll('.admin-day-check').forEach(cb => {
+            const isMatch = matchDays.includes(cb.value);
+            cb.checked = isMatch;
+            cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
+        });
+        state.adminFilters.days = matchDays;
+        renderAdminGrid();
+        updateAdminDetails();
+    }
+    if (btnWeekdays) btnWeekdays.addEventListener('click', () => filterByDayGroup(WEEKDAY_DAYS));
+    if (btnWeekends) btnWeekends.addEventListener('click', () => filterByDayGroup(WEEKEND_DAYS));
+
+    // Filter Presets
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const preset = btn.getAttribute('data-preset');
+            applyPreset(preset);
+        });
+    });
     if (btnResetFilters) {
         btnResetFilters.addEventListener('click', () => {
             state.adminFilters.memberIds = [];
+            state.adminFilters.mandatoryMemberIds = [];
             state.adminFilters.days = [];
             state.adminFilters.hours = [];
+            state.adminFilters.minFree = 0;
+            state.adminFilters.minDuration = 1;
+            state.adminFilters.timeRangeStart = null;
+            state.adminFilters.timeRangeEnd = null;
+            state.adminFilters.activePreset = null;
             state.selectedAdminCell.day = null;
             state.selectedAdminCell.hour = null;
             
@@ -1325,6 +1771,16 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('.admin-member-check').forEach(cb => {
                 cb.checked = false;
                 cb.closest('.check-item-label')?.classList.remove('is-selected');
+            });
+            
+            // Reset star buttons
+            document.querySelectorAll('.btn-toggle-mandatory').forEach(btn => {
+                btn.classList.remove('is-active');
+                const starIcon = btn.querySelector('.star-icon');
+                if (starIcon) starIcon.className = 'fa-regular fa-star star-icon';
+            });
+            document.querySelectorAll('.check-item-label').forEach(lbl => {
+                lbl.classList.remove('has-mandatory');
             });
             
             // Reset day checkboxes
@@ -1342,6 +1798,26 @@ function setupGlobalEventListeners() {
                 cb.checked = false;
                 cb.closest('.check-item-label')?.classList.remove('is-selected');
             });
+            
+            // Reset slider
+            const sliderMinFreeElement = document.getElementById('admin-filter-min-free');
+            if (sliderMinFreeElement) sliderMinFreeElement.value = 0;
+            const labelMinFreeValElement = document.getElementById('admin-filter-min-free-val');
+            if (labelMinFreeValElement) labelMinFreeValElement.textContent = "Tất cả";
+
+            // Reset duration buttons
+            document.querySelectorAll('.btn-duration').forEach(b => b.classList.remove('active'));
+            const dur1 = document.getElementById('dur-1h');
+            if (dur1) dur1.classList.add('active');
+
+            // Reset time range selects
+            const tStart = document.getElementById('filter-time-start');
+            const tEnd = document.getElementById('filter-time-end');
+            if (tStart) tStart.value = '';
+            if (tEnd) tEnd.value = '';
+
+            // Reset preset buttons
+            document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
             
             document.querySelectorAll('#admin-schedule-grid .grid-slot-cell').forEach(c => {
                 c.classList.remove('selected-cell');
@@ -1438,6 +1914,120 @@ function populateAdminHoursList() {
         hoursList.appendChild(lbl);
     });
 }
+
+// Điền danh sách giờ cho 2 select Time Range (Từ giờ / Đến giờ)
+function populateTimeRangeSelects() {
+    const startSel = document.getElementById('filter-time-start');
+    const endSel = document.getElementById('filter-time-end');
+    if (!startSel || !endSel) return;
+
+    const emptyOpt = () => {
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '-- Tất cả --';
+        return o;
+    };
+
+    startSel.innerHTML = '';
+    endSel.innerHTML = '';
+    startSel.appendChild(emptyOpt());
+    endSel.appendChild(emptyOpt());
+
+    HOURS.forEach(hour => {
+        const nextH = getNextHourString(hour);
+        const o1 = document.createElement('option');
+        o1.value = hour;
+        o1.textContent = `${hour}`;
+        startSel.appendChild(o1);
+
+        const o2 = document.createElement('option');
+        o2.value = hour;
+        o2.textContent = `${nextH}`;
+        endSel.appendChild(o2);
+    });
+}
+
+// Áp dụng preset bộ lọc nhanh
+function applyPreset(presetName) {
+    // Toggle: click lại preset đang active thì reset
+    if (state.adminFilters.activePreset === presetName) {
+        state.adminFilters.activePreset = null;
+        state.adminFilters.days = [];
+        state.adminFilters.hours = [];
+        document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
+        syncCheckboxesToFilters();
+        renderAdminGrid();
+        updateAdminDetails();
+        return;
+    }
+
+    state.adminFilters.activePreset = presetName;
+    document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.btn-preset[data-preset="${presetName}"]`)?.classList.add('active');
+
+    const activeDays = getRoomDays();
+    const WEEKDAY_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const WEEKEND_DAYS = ['Saturday', 'Sunday'];
+
+    const WORKHOURS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
+    const EVENING_HOURS = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+    const MORNING_HOURS = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
+
+    switch (presetName) {
+        case 'workhours':
+            state.adminFilters.days = WEEKDAY_DAYS.filter(d => activeDays.includes(d));
+            state.adminFilters.hours = WORKHOURS;
+            break;
+        case 'evening':
+            state.adminFilters.days = [];
+            state.adminFilters.hours = EVENING_HOURS;
+            break;
+        case 'weekend':
+            state.adminFilters.days = WEEKEND_DAYS.filter(d => activeDays.includes(d));
+            state.adminFilters.hours = [];
+            break;
+        case 'morning':
+            state.adminFilters.days = [];
+            state.adminFilters.hours = MORNING_HOURS;
+            break;
+    }
+
+    syncCheckboxesToFilters();
+    renderAdminGrid();
+    updateAdminDetails();
+}
+
+// Đồng bộ trạng thái checkbox với state.adminFilters (sau khi áp dụng preset)
+function syncCheckboxesToFilters() {
+    const fDays = state.adminFilters.days;
+    const fHours = state.adminFilters.hours;
+
+    // Sync days
+    const dayAllCb = document.getElementById('admin-filter-day-all');
+    if (dayAllCb) dayAllCb.checked = fDays.length === 0;
+    document.querySelectorAll('.admin-day-check').forEach(cb => {
+        const isMatch = fDays.includes(cb.value);
+        cb.checked = isMatch;
+        cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
+    });
+
+    // Sync hours
+    const hourAllCb = document.getElementById('admin-filter-hour-all');
+    if (hourAllCb) hourAllCb.checked = fHours.length === 0;
+    document.querySelectorAll('.admin-hour-check').forEach(cb => {
+        const isMatch = fHours.includes(cb.value);
+        cb.checked = isMatch;
+        cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
+    });
+
+    // Sync time range selects
+    const tStart = document.getElementById('filter-time-start');
+    const tEnd = document.getElementById('filter-time-end');
+    if (tStart) tStart.value = fHours.length > 0 ? fHours[0] : '';
+    if (tEnd) tEnd.value = fHours.length > 0 ? fHours[fHours.length - 1] : '';
+}
+
+
 
 function setupAdminMemberCheckboxEvents() {
     const allCb = document.getElementById('admin-filter-member-all');

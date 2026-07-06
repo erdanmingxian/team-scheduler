@@ -267,55 +267,132 @@
                     <div class="card admin-filter-card collapsible-card" id="admin-filter-container">
                         <div class="card-header collapsible-header" id="btn-toggle-admin-filter">
                             <div class="header-title-flex">
-                                <h2><i class="fa-solid fa-sliders"></i> Công cụ Lọc Admin</h2>
-                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn tính năng lọc</p>
+                                <h2><i class="fa-solid fa-sliders"></i> Công cụ Lọc Thông Minh</h2>
+                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn – Nhiều bộ lọc kết hợp đồng thời</p>
                             </div>
                             <i class="fa-solid fa-chevron-down toggle-icon" id="admin-filter-toggle-icon"></i>
                         </div>
                         <div class="card-body collapsible-body hidden" id="admin-filter-body">
-                                <!-- Filter Member Multi-select -->
-                                <div class="form-group margin-bottom-md">
-                                    <label><strong>1. Lọc theo Thành Viên</strong></label>
-                                    <div class="multi-check-list" id="admin-filter-members-list">
-                                        <label class="check-all-label">
-                                            <input type="checkbox" id="admin-filter-member-all" checked>
-                                            <span>-- Tất cả thành viên --</span>
-                                        </label>
-                                        <!-- Filled by JS -->
-                                    </div>
-                                    <p class="filter-tip">Tích chọn nhiều thành viên để xem lịch rảnh chung.</p>
-                                </div>
 
-                                <!-- Filter Day Multi-select -->
-                                <div class="form-group margin-bottom-md">
-                                    <label><strong>2. Lọc theo Ngày</strong></label>
-                                    <div class="multi-check-list" id="admin-filter-days-list">
-                                        <label class="check-all-label">
-                                            <input type="checkbox" id="admin-filter-day-all" checked>
-                                            <span>-- Tất cả ngày --</span>
-                                        </label>
-                                        <!-- Filled by JS -->
-                                    </div>
-                                </div>
-
-                                <!-- Filter Hour Multi-select -->
-                                <div class="form-group margin-bottom-md">
-                                    <label><strong>3. Lọc theo Khung Giờ</strong></label>
-                                    <div class="multi-check-list" id="admin-filter-hours-list">
-                                        <label class="check-all-label">
-                                            <input type="checkbox" id="admin-filter-hour-all" checked>
-                                            <span>-- Tất cả giờ --</span>
-                                        </label>
-                                        <!-- Filled by JS -->
-                                    </div>
-                                </div>
-
-                                <!-- Reset Button -->
-                                <button type="button" id="btn-reset-filters" class="btn btn-secondary btn-block">
-                                    <i class="fa-solid fa-rotate-left"></i> Đặt lại bộ lọc
+                            <!-- === SECTION 1: PRESET BUTTONS === -->
+                            <div class="filter-section-label">⚡ Bộ lọc nhanh (Preset)</div>
+                            <div class="preset-buttons-row" id="filter-presets">
+                                <button type="button" class="btn btn-preset" id="preset-workhours" data-preset="workhours">
+                                    <i class="fa-solid fa-briefcase"></i> Giờ hành chính
+                                </button>
+                                <button type="button" class="btn btn-preset" id="preset-evening" data-preset="evening">
+                                    <i class="fa-solid fa-moon"></i> Buổi tối
+                                </button>
+                                <button type="button" class="btn btn-preset" id="preset-weekend" data-preset="weekend">
+                                    <i class="fa-solid fa-sun"></i> Cuối tuần
+                                </button>
+                                <button type="button" class="btn btn-preset" id="preset-morning" data-preset="morning">
+                                    <i class="fa-solid fa-mug-hot"></i> Sáng sớm
                                 </button>
                             </div>
+
+                            <div class="filter-divider"></div>
+
+                            <!-- === SECTION 2: MEMBER FILTER === -->
+                            <div class="filter-section-label">1. Lọc theo Thành Viên</div>
+                            <div class="multi-check-list" id="admin-filter-members-list">
+                                <label class="check-all-label">
+                                    <input type="checkbox" id="admin-filter-member-all" checked>
+                                    <span>-- Tất cả thành viên --</span>
+                                </label>
+                                <!-- Filled by JS -->
+                            </div>
+                            <p class="filter-tip">Tích chọn + ⭐ bắt buộc. Bỏ tích = loại khỏi phân tích.</p>
+
+                            <div class="filter-divider"></div>
+
+                            <!-- === SECTION 3: DAY FILTER === -->
+                            <div class="filter-section-label">2. Lọc theo Ngày</div>
+                            <div class="weekday-quick-row">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-filter-weekdays">
+                                    <i class="fa-solid fa-business-time"></i> Ngày thường (T2-T6)
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-filter-weekends">
+                                    <i class="fa-solid fa-umbrella-beach"></i> Cuối tuần (T7-CN)
+                                </button>
+                            </div>
+                            <div class="multi-check-list" id="admin-filter-days-list">
+                                <label class="check-all-label">
+                                    <input type="checkbox" id="admin-filter-day-all" checked>
+                                    <span>-- Tất cả ngày --</span>
+                                </label>
+                                <!-- Filled by JS -->
+                            </div>
+
+                            <div class="filter-divider"></div>
+
+                            <!-- === SECTION 4: TIME RANGE FILTER === -->
+                            <div class="filter-section-label">3. Lọc theo Khung Giờ</div>
+                            <!-- Session quick buttons -->
+                            <div class="quick-hours-buttons">
+                                <button type="button" id="btn-filter-morning" class="btn btn-secondary btn-sm">☀️ Sáng (6h-12h)</button>
+                                <button type="button" id="btn-filter-afternoon" class="btn btn-secondary btn-sm">🌤 Chiều (12h-18h)</button>
+                                <button type="button" id="btn-filter-evening" class="btn btn-secondary btn-sm">🌙 Tối (18h-24h)</button>
+                            </div>
+                            <!-- Time range slider -->
+                            <div class="time-range-row">
+                                <label class="time-range-label"><i class="fa-regular fa-clock"></i> Từ giờ</label>
+                                <div class="custom-select-wrapper time-select-wrap">
+                                    <select id="filter-time-start" class="form-control time-range-select">
+                                        <!-- Filled by JS -->
+                                    </select>
+                                </div>
+                                <span class="time-range-arrow">→</span>
+                                <label class="time-range-label">Đến giờ</label>
+                                <div class="custom-select-wrapper time-select-wrap">
+                                    <select id="filter-time-end" class="form-control time-range-select">
+                                        <!-- Filled by JS -->
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="multi-check-list" id="admin-filter-hours-list">
+                                <label class="check-all-label">
+                                    <input type="checkbox" id="admin-filter-hour-all" checked>
+                                    <span>-- Tất cả giờ --</span>
+                                </label>
+                                <!-- Filled by JS -->
+                            </div>
+
+                            <div class="filter-divider"></div>
+
+                            <!-- === SECTION 5: SMART FILTERS === -->
+                            <div class="filter-section-label">4. Bộ lọc thông minh</div>
+                            <!-- Min free members -->
+                            <div class="smart-filter-row">
+                                <div class="smart-filter-item">
+                                    <label class="smart-filter-label"><i class="fa-solid fa-users"></i> Số người rảnh tối thiểu</label>
+                                    <div class="range-with-badge">
+                                        <input type="range" id="admin-filter-min-free" min="0" max="1" value="0">
+                                        <span id="admin-filter-min-free-val" class="detail-badge slot-badge range-badge">Tất cả</span>
+                                    </div>
+                                    <p class="filter-tip">Chỉ hiện ô có ≥ K người rảnh.</p>
+                                </div>
+                                <!-- Min consecutive duration -->
+                                <div class="smart-filter-item">
+                                    <label class="smart-filter-label"><i class="fa-solid fa-hourglass-half"></i> Thời lượng liên tiếp tối thiểu</label>
+                                    <div class="duration-select-row">
+                                        <button type="button" class="btn btn-duration active" data-dur="1" id="dur-1h">1h</button>
+                                        <button type="button" class="btn btn-duration" data-dur="2" id="dur-2h">2h</button>
+                                        <button type="button" class="btn btn-duration" data-dur="3" id="dur-3h">3h</button>
+                                        <button type="button" class="btn btn-duration" data-dur="4" id="dur-4h">4h+</button>
+                                    </div>
+                                    <p class="filter-tip">Tìm block giờ liên tiếp đủ dài để họp.</p>
+                                </div>
+                            </div>
+
+                            <div class="filter-divider"></div>
+
+                            <!-- Reset Button -->
+                            <button type="button" id="btn-reset-filters" class="btn btn-secondary btn-block">
+                                <i class="fa-solid fa-rotate-left"></i> Đặt lại tất cả bộ lọc
+                            </button>
                         </div>
+                    </div>
 
                         <!-- Selected Info Card (Moved above grid) -->
                         <div class="card admin-details-card" id="admin-details-card">
@@ -368,6 +445,18 @@
                                     <div class="palette-legend-labels">
                                         <span>Ít người rảnh</span>
                                         <span>Nhiều người rảnh</span>
+                                    </div>
+                                </div>
+
+                                <!-- Heatmap Stats -->
+                                <div class="heatmap-stats" id="heatmap-stats">
+                                    <div class="heatmap-section">
+                                        <div class="heatmap-label"><i class="fa-solid fa-calendar-days"></i> Lượt rảnh theo Ngày</div>
+                                        <div class="heatmap-bars" id="heatmap-days-bars"></div>
+                                    </div>
+                                    <div class="heatmap-section">
+                                        <div class="heatmap-label"><i class="fa-regular fa-clock"></i> Lượt rảnh theo Giờ</div>
+                                        <div class="heatmap-bars" id="heatmap-hours-bars"></div>
                                     </div>
                                 </div>
                             </div>
