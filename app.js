@@ -297,7 +297,16 @@ function initHomeView() {
             return;
         }
         
-        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        // Sử dụng UUID (Cách 1) kết hợp lưu localStorage (Cách 2 đã có sẵn)
+        const generateUUID = () => {
+            return (typeof crypto !== 'undefined' && crypto.randomUUID) 
+                ? crypto.randomUUID() 
+                : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+        };
+        const roomId = 'room_' + generateUUID();
         
         const newRoom = {
             id: roomId,

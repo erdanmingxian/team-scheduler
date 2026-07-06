@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
@@ -43,11 +43,11 @@
                 <div class="card-body">
                     <form id="form-create-room">
                         <div class="form-group margin-bottom-md">
-                            <label for="room-name"><i class="fa-solid fa-file-signature"></i> Tên phòng lịch biểu</label>
+                            <label for="room-name"><i class="fa-solid fa-file-signature"></i> Tên phòng </label>
                             <input type="text" id="room-name" class="form-control" placeholder="Ví dụ: Lịch rảnh họp Team Dev, Lịch trực tuần..." required autocomplete="off">
                         </div>
                         <div class="form-group margin-bottom-md">
-                            <label for="room-admin-password"><i class="fa-solid fa-key"></i> Mật khẩu Admin (Để xem và lọc lịch tổng hợp)</label>
+                            <label for="room-admin-password"><i class="fa-solid fa-key"></i> Mật khẩu Admin</label>
                             <input type="password" id="room-admin-password" class="form-control" placeholder="Nhập mật khẩu quản trị..." required autocomplete="off">
                         </div>
                         <div class="form-group margin-bottom-md">
@@ -267,15 +267,15 @@
                     <div class="card admin-filter-card collapsible-card" id="admin-filter-container">
                         <div class="card-header collapsible-header" id="btn-toggle-admin-filter">
                             <div class="header-title-flex">
-                                <h2><i class="fa-solid fa-sliders"></i> Công cụ Lọc Thông Minh</h2>
-                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn – Nhiều bộ lọc kết hợp đồng thời</p>
+                                <h2><i class="fa-solid fa-sliders"></i> CÔNG CỤ LỌC </h2>
+                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn</p>
                             </div>
                             <i class="fa-solid fa-chevron-down toggle-icon" id="admin-filter-toggle-icon"></i>
                         </div>
                         <div class="card-body collapsible-body hidden" id="admin-filter-body">
 
                             <!-- === SECTION 1: PRESET BUTTONS === -->
-                            <div class="filter-section-label">⚡ Bộ lọc nhanh (Preset)</div>
+                            <div class="filter-section-label"> Bộ lọc nhanh (Preset)</div>
                             <div class="preset-buttons-row" id="filter-presets">
                                 <button type="button" class="btn btn-preset" id="preset-workhours" data-preset="workhours">
                                     <i class="fa-solid fa-briefcase"></i> Giờ hành chính
@@ -294,7 +294,7 @@
                             <div class="filter-divider"></div>
 
                             <!-- === SECTION 2: MEMBER FILTER === -->
-                            <div class="filter-section-label">1. Lọc theo Thành Viên</div>
+                            <div class="filter-section-label">1. Lọc theo thành viên</div>
                             <div class="multi-check-list" id="admin-filter-members-list">
                                 <label class="check-all-label">
                                     <input type="checkbox" id="admin-filter-member-all" checked>
@@ -302,7 +302,7 @@
                                 </label>
                                 <!-- Filled by JS -->
                             </div>
-                            <p class="filter-tip">Tích chọn + ⭐ bắt buộc. Bỏ tích = loại khỏi phân tích.</p>
+                            <p class="filter-tip">Tích chọn</p>
 
                             <div class="filter-divider"></div>
 
@@ -330,9 +330,9 @@
                             <div class="filter-section-label">3. Lọc theo Khung Giờ</div>
                             <!-- Session quick buttons -->
                             <div class="quick-hours-buttons">
-                                <button type="button" id="btn-filter-morning" class="btn btn-secondary btn-sm">☀️ Sáng (6h-12h)</button>
-                                <button type="button" id="btn-filter-afternoon" class="btn btn-secondary btn-sm">🌤 Chiều (12h-18h)</button>
-                                <button type="button" id="btn-filter-evening" class="btn btn-secondary btn-sm">🌙 Tối (18h-24h)</button>
+                                <button type="button" id="btn-filter-morning" class="btn btn-secondary btn-sm"> Sáng (6h-12h)</button>
+                                <button type="button" id="btn-filter-afternoon" class="btn btn-secondary btn-sm"> Chiều (12h-18h)</button>
+                                <button type="button" id="btn-filter-evening" class="btn btn-secondary btn-sm"> Tối (18h-24h)</button>
                             </div>
                             <!-- Time range slider -->
                             <div class="time-range-row">
@@ -397,7 +397,7 @@
                         <!-- Selected Info Card (Moved above grid) -->
                         <div class="card admin-details-card" id="admin-details-card">
                             <div class="card-header">
-                                <h2><i class="fa-solid fa-circle-info"></i> Kết Quả Lọc Chi Tiết</h2>
+                                <h2><i class="fa-solid fa-circle-info"></i> KẾT QUẢ LỌC CHI TIẾT</h2>
                             </div>
                             <div class="card-body" id="admin-details-content">
                                 <div class="empty-state">
@@ -410,7 +410,7 @@
                         <!-- Smart Suggestions Card -->
                         <div class="card admin-suggestions-card" id="admin-suggestions-card">
                             <div class="card-header">
-                                <h2><i class="fa-solid fa-wand-magic-sparkles"></i> Gợi Ý Khung Giờ Tối Ưu</h2>
+                                <h2><i class="fa-solid fa-wand-magic-sparkles"></i> GỢI Ý KHUNG GIỜ TỐI ƯU </h2>
                             </div>
                             <div class="card-body" id="admin-suggestions-content">
                                 <div class="empty-state">
@@ -424,7 +424,7 @@
                         <div class="card admin-grid-card">
                             <div class="card-header schedule-header-flex">
                                 <div>
-                                    <h2><i class="fa-solid fa-calendar-week"></i> Bản Đồ Lịch Biểu Tổng Hợp</h2>
+                                    <h2><i class="fa-solid fa-calendar-week"></i> BẢN ĐỒ LỊCH BIỂU TỔNG HỢP</h2>
                                     <p class="subtitle">Nhấp vào ô bất kỳ để xem danh sách chi tiết.</p>
                                 </div>
                                 <div class="total-members-badge">
@@ -467,47 +467,9 @@
         
         <!-- Setup Guide Button -->
         <footer class="app-footer">
-            <p>TeamSync chạy trực tuyến miễn phí. <a href="#" id="btn-toggle-setup"><i class="fa-brands fa-google"></i> Bấm để xem hướng dẫn đồng bộ online với Firebase</a></p>
+            <p>TeamSync chạy trực tuyến miễn phí.</p>
         </footer>
     </div>
-
-    <!-- Firebase Setup Modal -->
-    <div id="firebase-modal" class="modal-overlay hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><i class="fa-brands fa-google"></i> Hướng Dẫn Đồng Bộ Firebase Online Miễn Phí</h2>
-                <button type="button" class="btn-close-modal" id="btn-close-modal">&times;</button>
-            </div>
-            <div class="modal-body scrollable-modal-body text-left">
-                <h3>Bước 1: Tạo dự án Firebase</h3>
-                <ol>
-                    <li>Truy cập <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console <i class="fa-solid fa-arrow-up-right-from-square"></i></a> và tạo dự án mới (ví dụ: <code>teamsync-rtdb</code>).</li>
-                </ol>
-
-                <h3>Bước 2: Tạo Realtime Database</h3>
-                <ol>
-                    <li>Vào mục <strong>Build &gt; Realtime Database</strong>. Nhấn <strong>Create Database</strong>.</li>
-                    <li>Chọn chế độ <strong>Start in test mode</strong> (Chế độ thử nghiệm) rồi kích hoạt.</li>
-                    <li>Copy URL của Database mới tạo (dạng: <code>https://your-id.firebaseio.com/</code>).</li>
-                </ol>
-
-                <h3>Bước 3: Tích hợp vào source code</h3>
-                <p>Mở file <code>app.js</code> và dán URL vào biến cấu hình đầu file:</p>
-                <pre><code class="language-javascript">const FIREBASE_DB_URL = "https://your-id.firebaseio.com/";</code></pre>
-
-                <h3>Bước 4: Đẩy lên Vercel chạy trực tuyến</h3>
-                <ol>
-                    <li>Đưa thư mục code này lên GitHub cá nhân của bạn.</li>
-                    <li>Kết nối GitHub với <a href="https://vercel.com" target="_blank" rel="noopener">Vercel.com <i class="fa-solid fa-arrow-up-right-from-square"></i></a> và Deploy.</li>
-                    <li>Bạn sẽ có đường dẫn <code>https://ten-du-an.vercel.app</code>. Chia sẻ link này cho nhóm của bạn cùng truy cập!</li>
-                </ol>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="btn-close-modal-footer">Đóng hướng dẫn</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Core App Logic -->
     <script src="app.js"></script>
 </body>
