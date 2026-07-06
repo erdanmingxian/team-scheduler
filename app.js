@@ -6,7 +6,7 @@
  * Điền URL Realtime Database của bạn vào đây (ví dụ: "https://ten-du-an-default-rtdb.firebaseio.com/")
  * Nếu để trống "", ứng dụng sẽ chạy offline sử dụng bộ nhớ trình duyệt (localStorage).
  */
-const FIREBASE_DB_URL = ""; 
+const FIREBASE_DB_URL = "https://teamscheduledrat-default-rtdb.asia-southeast1.firebasedatabase.app/"; 
 
 // Cấu hình các ngày trong tuần và giờ làm việc (Từ 06:00 đến 00:00 tối)
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -138,7 +138,8 @@ let state = {
         activePreset: null      // tên preset đang kích hoạt
     },
     selectedAdminCells: [], // Array of {day, hour}
-    isOfflineMode: true
+    isOfflineMode: true,
+    hasPendingSync: false  // true khi có dữ liệu chưa đồng bộ lên Cloud
 };
 
 // Biến điều khiển thao tác kéo chuột tô lịch (thành viên)
@@ -459,6 +460,14 @@ async function initRoomView() {
     // Setup tự động đồng bộ thời gian thực mỗi 5 giây
     if (!state.isOfflineMode) {
         setInterval(async () => {
+            // Nếu có dữ liệu chưa sync, thử lại trước
+            if (state.hasPendingSync && state.room) {
+                console.log('[Sync] Đang thử đồng bộ lại dữ liệu chưa được lưu...');
+                await saveRoomDataToDB();
+                if (!state.hasPendingSync) {
+                    showToast('✅ Đã đồng bộ Cloud thành công!');
+                }
+            }
             await loadRoomData(true);
         }, 5000);
     }
@@ -479,10 +488,17 @@ async function loadRoomData(isBackground = false) {
         }
         
         if (!roomData) {
+            // Nếu Firebase không có dữ liệu, thử fallback localStorage
+            if (!state.isOfflineMode) {
+                const localRooms = getLocalRooms();
+                roomData = localRooms[state.currentRoomId];
+            }
+        }
+        if (!roomData) {
             if (!isBackground) {
                 showToast("Phòng đặt lịch không tồn tại!", "error");
                 setTimeout(() => {
-                    window.location.href = window.location.pathname; // Quay lại trang chủ
+                    window.location.href = window.location.pathname;
                 }, 2000);
             }
             return false;
@@ -521,8 +537,17 @@ async function loadRoomData(isBackground = false) {
         return true;
     } catch (error) {
         console.error("Lỗi tải phòng:", error);
-        if (!isBackground) {
-            showToast("Lỗi đồng bộ dữ liệu với Cloud.", "error");
+        if (isBackground) {
+            // Nếu background poll lỗi, thử dùng dữ liệu localStorage để không gây gián đoạn UI
+            const localRooms = getLocalRooms();
+            const localData = localRooms[state.currentRoomId];
+            if (localData) {
+                state.room = localData;
+                renderAdminGrid();
+                updateAdminDetails();
+            }
+        } else {
+            showToast("Lỗi kết nối — thử lại...", "error");
         }
         return false;
     }
@@ -674,23 +699,40 @@ async function saveMemberScheduleToDB(memberId, schedule) {
 
 // Ghi dữ liệu phòng hiện tại xuống DB (Local hoặc Firebase)
 async function saveRoomDataToDB() {
-    try {
-        if (state.isOfflineMode) {
-            const rooms = getLocalRooms();
-            rooms[state.currentRoomId] = state.room;
-            saveLocalRooms(rooms);
-        } else {
-            // Firebase ghi đè toàn bộ dữ liệu phòng hiện tại
-            await fetch(`${FIREBASE_DB_URL}rooms/${state.currentRoomId}.json`, {
+    // Luôn lưu LocalStorage trước như bản backup
+    const rooms = getLocalRooms();
+    rooms[state.currentRoomId] = state.room;
+    saveLocalRooms(rooms);
+
+    if (state.isOfflineMode) return;
+
+    // Thử ghi Firebase, retry tối đa 3 lần
+    const MAX_RETRY = 3;
+    for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+        try {
+            const response = await fetch(`${FIREBASE_DB_URL}rooms/${state.currentRoomId}.json`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(state.room)
             });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Firebase trả lỗi ${response.status}: ${errText}`);
+            }
+            // Thành công — xóa cờ pending nếu có
+            state.hasPendingSync = false;
+            return;
+        } catch (error) {
+            console.warn(`[Sync] Lần thử ${attempt}/${MAX_RETRY} thất bại:`, error.message);
+            if (attempt < MAX_RETRY) {
+                await new Promise(r => setTimeout(r, 800 * attempt)); // exponential backoff nhỏ
+            }
         }
-    } catch (error) {
-        console.error("Lỗi ghi DB:", error);
-        showToast("Lỗi đồng bộ Cloud (Chỉ lưu tạm thời)", "error");
     }
+
+    // Tất cả retry đều thất bại — đánh dấu pending để sync lại sau
+    state.hasPendingSync = true;
+    showToast("⚠️ Lưu Cloud thất bại — đã lưu tạm offline. Sẽ tự đồng bộ lại khi có mạng.", "error");
 }
 
 // -------------------------------------------------------------
