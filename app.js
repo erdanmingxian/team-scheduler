@@ -1496,7 +1496,10 @@ function setupGlobalEventListeners() {
             const tabId = btn.getAttribute('data-tab');
             document.getElementById(tabId).classList.add('active');
             
+            const btnOpenFilter = document.getElementById('btn-open-filter-modal');
+            
             if (tabId === 'admin-tab') {
+                if (btnOpenFilter) btnOpenFilter.classList.remove('hidden');
                 const isUnlocked = sessionStorage.getItem(`teamsync_unlocked_${state.currentRoomId}`) === 'true';
                 if (isUnlocked || state.isAdminUnlocked) {
                     unlockAdminView();
@@ -1504,9 +1507,34 @@ function setupGlobalEventListeners() {
                     document.getElementById('admin-lock-card').classList.remove('hidden');
                     document.getElementById('admin-workspace-content').classList.add('hidden');
                 }
+            } else {
+                if (btnOpenFilter) btnOpenFilter.classList.add('hidden');
             }
         });
     });
+    
+    // Modal Filter Logic
+    const btnOpenFilter = document.getElementById('btn-open-filter-modal');
+    const filterModal = document.getElementById('admin-filter-modal');
+    const btnCloseFilter = document.getElementById('btn-close-filter-modal');
+    const btnApplyFilters = document.getElementById('btn-apply-filters');
+    
+    if (btnOpenFilter && filterModal && btnCloseFilter && btnApplyFilters) {
+        btnOpenFilter.addEventListener('click', () => {
+            filterModal.classList.remove('hidden');
+        });
+        
+        const closeFilterModal = () => {
+            filterModal.classList.add('hidden');
+        };
+        
+        btnCloseFilter.addEventListener('click', closeFilterModal);
+        btnApplyFilters.addEventListener('click', closeFilterModal);
+        
+        filterModal.addEventListener('click', (e) => {
+            if (e.target === filterModal) closeFilterModal();
+        });
+    }
     
     // 2. Quay lại trang chủ
     const btnGoHome = document.getElementById('btn-go-home');
@@ -1609,17 +1637,7 @@ function setupGlobalEventListeners() {
         });
     }
     
-    // Collapsible Admin Filter Tool
-    const btnToggleAdminFilter = document.getElementById('btn-toggle-admin-filter');
-    const adminFilterBody = document.getElementById('admin-filter-body');
-    const adminFilterToggleIcon = document.getElementById('admin-filter-toggle-icon');
-    
-    if (btnToggleAdminFilter && adminFilterBody && adminFilterToggleIcon) {
-        btnToggleAdminFilter.addEventListener('click', () => {
-            adminFilterBody.classList.toggle('hidden');
-            adminFilterToggleIcon.classList.toggle('open');
-        });
-    }
+    // Collapsible logic removed, now using Modal (see setupGlobalEventListeners)
     
     // 10. Tab Admin: Bộ lọc multi-select
     const btnResetFilters = document.getElementById('btn-reset-filters');

@@ -30,15 +30,13 @@
                     <span>Lên lịch rảnh/bận cho đội ngũ của bạn</span>
                 </div>
             </div>
-            <p class="home-subtitle">Tạo phòng lịch biểu trực tuyến nhanh chóng, chia sẻ liên kết để mọi người cùng điền, bảo mật quản trị bằng mật khẩu.</p>
         </header>
 
         <main class="home-main">
             <!-- Create Room Card -->
             <div class="card create-room-card">
                 <div class="card-header">
-                    <h2><i class="fa-solid fa-square-plus"></i> Tạo Phòng Lập Lịch Mới</h2>
-                    <p class="subtitle">Lập lịch rảnh cho cuộc họp, sự kiện hoặc lịch làm việc tuần</p>
+                    <h2><i class="fa-solid fa-square-plus"></i> Tạo Phòng</h2>
                 </div>
                 <div class="card-body">
                     <form id="form-create-room">
@@ -126,6 +124,9 @@
             </div>
             
             <div class="header-right">
+                <button type="button" class="btn btn-primary hidden" id="btn-open-filter-modal" style="margin-right: 12px;">
+                    <i class="fa-solid fa-filter"></i> Lọc
+                </button>
                 <button type="button" class="btn btn-success" id="btn-share-link">
                     <i class="fa-solid fa-share-nodes"></i> Sao chép link chia sẻ
                 </button>
@@ -189,14 +190,12 @@
                         <div class="overlay-content">
                             <i class="fa-solid fa-arrow-pointer overlay-icon"></i>
                             <h3>Hãy chọn hoặc thêm tên của bạn trước</h3>
-                            <p>Chọn thành viên ở Bước 1 để bắt đầu đánh dấu khung giờ rảnh của bạn.</p>
                         </div>
                     </div>
 
                     <div class="card-header schedule-header-flex">
                         <div>
-                            <h2>Bước 2: Chọn khung giờ RẢNH của bạn (6h00 - 0h00)</h2>
-                            <p class="subtitle">Nhấp chuột hoặc kéo rê chuột để chọn.</p>
+                            <h2>Bước 2: Chọn khung giờ</h2>
                         </div>
                         <div class="member-display-badge">
                             Đang điền lịch cho: <strong id="current-member-name">Chưa chọn</strong>
@@ -264,15 +263,90 @@
                 <div class="admin-layout-single hidden" id="admin-workspace-content">
                     
                     <!-- Filter Collapsible Tool -->
-                    <div class="card admin-filter-card collapsible-card" id="admin-filter-container">
-                        <div class="card-header collapsible-header" id="btn-toggle-admin-filter">
-                            <div class="header-title-flex">
-                                <h2><i class="fa-solid fa-sliders"></i> CÔNG CỤ LỌC </h2>
-                                <p class="subtitle">Bấm để mở rộng hoặc thu gọn</p>
+                                            <!-- Selected Info Card (Moved above grid) -->
+                        <div class="card admin-details-card" id="admin-details-card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-circle-info"></i> KẾT QUẢ LỌC CHI TIẾT</h2>
                             </div>
-                            <i class="fa-solid fa-chevron-down toggle-icon" id="admin-filter-toggle-icon"></i>
+                            <div class="card-body" id="admin-details-content">
+                                <div class="empty-state">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <p>Chọn các bộ lọc ở trên hoặc nhấp trực tiếp vào ô lưới lịch biểu để phân tích chi tiết.</p>
+                                </div>
+                            </div>
                         </div>
-                        <div class="card-body collapsible-body hidden" id="admin-filter-body">
+
+                        <!-- Smart Suggestions Card -->
+                        <div class="card admin-suggestions-card" id="admin-suggestions-card">
+                            <div class="card-header">
+                                <h2><i class="fa-solid fa-wand-magic-sparkles"></i> GỢI Ý KHUNG GIỜ TỐI ƯU </h2>
+                            </div>
+                            <div class="card-body" id="admin-suggestions-content">
+                                <div class="empty-state">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Visual Grid Display -->
+                        <div class="card admin-grid-card">
+                            <div class="card-header schedule-header-flex">
+                                <div>
+                                    <h2><i class="fa-solid fa-calendar-week"></i> BẢN ĐỒ LỊCH BIỂU TỔNG HỢP</h2>
+                                    <p class="subtitle">Nhấp vào ô bất kỳ để xem danh sách chi tiết.</p>
+                                </div>
+                                <div class="total-members-badge">
+                                    Tổng số thành viên: <strong id="admin-total-members-count">0</strong>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Calendar Grid for Admin -->
+                                <div class="grid-scroll-container">
+                                    <div class="schedule-grid" id="admin-schedule-grid">
+                                        <!-- Generated by JS -->
+                                    </div>
+                                </div>
+
+                                <!-- Palette Legend -->
+                                <div class="palette-legend" id="admin-palette-legend">
+                                    <div class="palette-legend-bar" id="admin-palette-bar"></div>
+                                    <div class="palette-legend-labels">
+                                        <span>Ít người rảnh</span>
+                                        <span>Nhiều người rảnh</span>
+                                    </div>
+                                </div>
+
+                                <!-- Heatmap Stats -->
+                                <div class="heatmap-stats" id="heatmap-stats">
+                                    <div class="heatmap-section">
+                                        <div class="heatmap-label"><i class="fa-solid fa-calendar-days"></i> Lượt rảnh theo Ngày</div>
+                                        <div class="heatmap-bars" id="heatmap-days-bars"></div>
+                                    </div>
+                                    <div class="heatmap-section">
+                                        <div class="heatmap-label"><i class="fa-regular fa-clock"></i> Lượt rảnh theo Giờ</div>
+                                        <div class="heatmap-bars" id="heatmap-hours-bars"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Setup Guide Button -->
+        <footer class="app-footer">
+            <p>TeamSync chạy trực tuyến miễn phí.</p>
+        </footer>
+    </div>
+    
+    <!-- Admin Filter Modal -->
+    <div class="modal-overlay hidden" id="admin-filter-modal">
+        <div class="modal-content admin-filter-modal-content" style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-sliders"></i> CÔNG CỤ LỌC KẾT QUẢ</h2>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-close-filter-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" id="admin-filter-body">
 
                             <!-- === SECTION 1: PRESET BUTTONS === -->
                             <div class="filter-section-label"> Bộ lọc nhanh (Preset)</div>
@@ -391,85 +465,13 @@
                             <button type="button" id="btn-reset-filters" class="btn btn-secondary btn-block">
                                 <i class="fa-solid fa-rotate-left"></i> Đặt lại tất cả bộ lọc
                             </button>
-                        </div>
-                    </div>
-
-                        <!-- Selected Info Card (Moved above grid) -->
-                        <div class="card admin-details-card" id="admin-details-card">
-                            <div class="card-header">
-                                <h2><i class="fa-solid fa-circle-info"></i> KẾT QUẢ LỌC CHI TIẾT</h2>
-                            </div>
-                            <div class="card-body" id="admin-details-content">
-                                <div class="empty-state">
-                                    <i class="fa-solid fa-magnifying-glass"></i>
-                                    <p>Chọn các bộ lọc ở trên hoặc nhấp trực tiếp vào ô lưới lịch biểu để phân tích chi tiết.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Smart Suggestions Card -->
-                        <div class="card admin-suggestions-card" id="admin-suggestions-card">
-                            <div class="card-header">
-                                <h2><i class="fa-solid fa-wand-magic-sparkles"></i> GỢI Ý KHUNG GIỜ TỐI ƯU </h2>
-                            </div>
-                            <div class="card-body" id="admin-suggestions-content">
-                                <div class="empty-state">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
-                                    <p>Gợi ý lịch rảnh nhóm tối ưu nhất sẽ hiển thị ở đây.</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Visual Grid Display -->
-                        <div class="card admin-grid-card">
-                            <div class="card-header schedule-header-flex">
-                                <div>
-                                    <h2><i class="fa-solid fa-calendar-week"></i> BẢN ĐỒ LỊCH BIỂU TỔNG HỢP</h2>
-                                    <p class="subtitle">Nhấp vào ô bất kỳ để xem danh sách chi tiết.</p>
-                                </div>
-                                <div class="total-members-badge">
-                                    Tổng số thành viên: <strong id="admin-total-members-count">0</strong>
-                                </div>
-                            </div>
-                            <div class="card-body">
-                                <!-- Calendar Grid for Admin -->
-                                <div class="grid-scroll-container">
-                                    <div class="schedule-grid" id="admin-schedule-grid">
-                                        <!-- Generated by JS -->
-                                    </div>
-                                </div>
-
-                                <!-- Palette Legend -->
-                                <div class="palette-legend" id="admin-palette-legend">
-                                    <div class="palette-legend-bar" id="admin-palette-bar"></div>
-                                    <div class="palette-legend-labels">
-                                        <span>Ít người rảnh</span>
-                                        <span>Nhiều người rảnh</span>
-                                    </div>
-                                </div>
-
-                                <!-- Heatmap Stats -->
-                                <div class="heatmap-stats" id="heatmap-stats">
-                                    <div class="heatmap-section">
-                                        <div class="heatmap-label"><i class="fa-solid fa-calendar-days"></i> Lượt rảnh theo Ngày</div>
-                                        <div class="heatmap-bars" id="heatmap-days-bars"></div>
-                                    </div>
-                                    <div class="heatmap-section">
-                                        <div class="heatmap-label"><i class="fa-regular fa-clock"></i> Lượt rảnh theo Giờ</div>
-                                        <div class="heatmap-bars" id="heatmap-hours-bars"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                </div>
-            </section>
-        </main>
-        
-        <!-- Setup Guide Button -->
-        <footer class="app-footer">
-            <p>TeamSync chạy trực tuyến miễn phí.</p>
-        </footer>
+                        
+            <div class="modal-footer">
+                <button type="button" id="btn-apply-filters" class="btn btn-primary btn-block">Áp dụng & Đóng</button>
+            </div>
+        </div>
     </div>
+    
     <!-- Core App Logic -->
     <script src="app.js"></script>
 </body>
