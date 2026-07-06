@@ -803,8 +803,9 @@ input:checked + .slider:before {
     border-bottom: 1px solid var(--border-color);
     height: 38px;
     cursor: pointer;
-    transition: background-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+    transition: filter var(--transition-fast), box-shadow var(--transition-fast);
     position: relative;
+    overflow: hidden;
 }
 
 /* Admin heatmap-0 = nhạt nhất khi có dữ liệu nhưng không ai rảnh */
@@ -813,8 +814,8 @@ input:checked + .slider:before {
 }
 
 .grid-slot-cell:hover {
-    filter: brightness(1.2);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    filter: brightness(1.18);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 /* Slot selected/free state - Light lavender #DEA1CE */
@@ -925,9 +926,9 @@ input:checked + .slider:before {
 }
 
 .grid-slot-cell.admin-cell:hover {
-    transform: scale(1.08);
+    filter: brightness(1.18);
     z-index: 2;
-    box-shadow: var(--shadow-sm);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15);
 }
 
 .grid-slot-cell.admin-cell.selected-cell {

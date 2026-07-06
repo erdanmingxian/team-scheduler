@@ -139,7 +139,8 @@ let state = {
     },
     selectedAdminCells: [], // Array of {day, hour}
     isOfflineMode: true,
-    hasPendingSync: false  // true khi có dữ liệu chưa đồng bộ lên Cloud
+    hasPendingSync: false,  // true khi có dữ liệu chưa đồng bộ lên Cloud
+    lastSuggestionsHash: ''  // hash nội dung gợi ý, tránh re-render không cần thiết
 };
 
 // Biến điều khiển thao tác kéo chuột tô lịch (thành viên)
@@ -1284,20 +1285,31 @@ function updateAdminDetails() {
     detailsContent.innerHTML = htmlContent;
 }
 
-// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin - NÂNG CẤP với block grouping
+// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin
 function updateAdminSuggestions() {
     if (!state.room) return;
     const suggestionsContent = document.getElementById('admin-suggestions-content');
     if (!suggestionsContent) return;
 
     const members = Object.values(state.room.members);
+
+    // Tạo hash nội dung đơn giản để phát hiện thay đổi, tránh giật do re-render liên tục
+    const filterKey = JSON.stringify({
+        memberIds: state.adminFilters.memberIds,
+        days: state.adminFilters.days,
+        hours: state.adminFilters.hours,
+        minDuration: state.adminFilters.minDuration,
+        memberCount: members.length,
+        scheduleSnapshot: members.map(m => ({
+            id: m.id,
+            days: Object.entries(m.schedule || {}).map(([d, hs]) => d + ':' + (hs || []).length).join('|')
+        }))
+    });
+    if (filterKey === state.lastSuggestionsHash) return; // không thay đổi, bỏ qua
+    state.lastSuggestionsHash = filterKey;
+
     if (members.length === 0) {
-        suggestionsContent.innerHTML = `
-            <div class="empty-state">
-                <i class="fa-solid fa-users-slash"></i>
-                <p>Chưa có thành viên nào điền lịch biểu.</p>
-            </div>
-        `;
+        suggestionsContent.innerHTML = `<div class="empty-state"><p>Chưa có thành viên nào điền lịch biểu.</p></div>`;
         return;
     }
 
@@ -1308,12 +1320,7 @@ function updateAdminSuggestions() {
         : members;
 
     if (membersToConsider.length === 0) {
-        suggestionsContent.innerHTML = `
-            <div class="empty-state">
-                <i class="fa-solid fa-users-slash"></i>
-                <p>Không có thành viên nào phù hợp bộ lọc.</p>
-            </div>
-        `;
+        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào phù hợp bộ lọc.</p></div>`;
         return;
     }
 
@@ -1354,12 +1361,7 @@ function updateAdminSuggestions() {
     }
 
     if (topBlocks.length === 0 && topSlots.length === 0) {
-        suggestionsContent.innerHTML = `
-            <div class="empty-state">
-                <i class="fa-solid fa-calendar-xmark"></i>
-                <p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p>
-            </div>
-        `;
+        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p></div>`;
         return;
     }
 
@@ -1376,26 +1378,25 @@ function updateAdminSuggestions() {
     const leastFlexible = memberStats[memberStats.length - 1];
 
     let html = `<div class="detail-section">`;
-    html += `<h3 class="detail-title"><i class="fa-solid fa-trophy" style="color: #eab308; margin-right: 0.4rem;"></i> Top ${topBlocks.length > 0 ? topBlocks.length : topSlots.length} Khung Giờ Tối Ưu Nhất</h3>`;
+    html += `<h3 class="detail-title">Top ${topBlocks.length > 0 ? topBlocks.length : topSlots.length} Khung Giờ Tối Ưu Nhất</h3>`;
     html += `<ul class="member-list" style="margin-bottom: 1.25rem; max-height: none;">`;
 
     if (topBlocks.length > 0) {
         topBlocks.forEach((block, index) => {
             const pct = Math.round((block.avgFree / membersToConsider.length) * 100);
             const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
-            const tierIcon = pct >= 100 ? '🥇' : pct >= 70 ? '🥈' : '🥉';
             const endHour = HOURS[HOURS.indexOf(block.startHour) + block.duration] || '00:00';
             html += `
                 <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
                     <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong style="color: var(--text-primary);">${tierIcon} #${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${endHour}</strong>
+                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${endHour}</strong>
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <span class="block-duration-tag">${block.duration}h liên tiếp</span>
                             <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
                         </div>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        <strong>Rảnh trung bình:</strong> ${block.avgFree.toFixed(1)}/${membersToConsider.length} người · ${block.freeNames.join(', ')}
+                        <strong>Rảnh:</strong> ${block.freeNames.join(', ')} (${block.avgFree}/${membersToConsider.length} người)
                     </div>
                     <div class="suggestion-progress-wrap">
                         <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
@@ -1407,11 +1408,10 @@ function updateAdminSuggestions() {
         topSlots.forEach((slot, index) => {
             const pct = Math.round((slot.freeCount / slot.total) * 100);
             const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
-            const tierIcon = pct >= 100 ? '🥇' : pct >= 70 ? '🥈' : '🥉';
             html += `
                 <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 1rem; border-left: 3px solid var(--color-success);">
                     <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong style="color: var(--text-primary);">${tierIcon} #${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
+                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
                         <span class="suggestion-tier-badge tier-badge-${tier}">${slot.freeCount}/${slot.total} (${pct}%)</span>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">
@@ -1428,7 +1428,7 @@ function updateAdminSuggestions() {
 
     // Thành viên linh hoạt nhất
     if (mostFlexibleMember && mostFlexibleMember.count > 0) {
-        html += `<h3 class="detail-title"><i class="fa-solid fa-bolt" style="color: #06b6d4; margin-right: 0.4rem;"></i> Thành viên linh hoạt nhất</h3>`;
+        html += `<h3 class="detail-title">Thành viên linh hoạt nhất</h3>`;
         html += `
             <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-left: 3px solid #06b6d4; gap: 0.5rem;">
                 <span><strong>${mostFlexibleMember.name}</strong></span>
@@ -1439,7 +1439,7 @@ function updateAdminSuggestions() {
 
     // Thành viên khó xếp nhất (nếu khác người trên)
     if (leastFlexible && leastFlexible.name !== mostFlexibleMember?.name) {
-        html += `<h3 class="detail-title"><i class="fa-solid fa-calendar-xmark" style="color: #f43f5e; margin-right: 0.4rem;"></i> Thành viên ít rảnh nhất</h3>`;
+        html += `<h3 class="detail-title">Thành viên ít rảnh nhất</h3>`;
         html += `
             <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 1rem; border-left: 3px solid #f43f5e; gap: 0.5rem;">
                 <span><strong>${leastFlexible.name}</strong></span>
