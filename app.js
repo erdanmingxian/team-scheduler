@@ -1068,23 +1068,12 @@ function updateSuggestions() {
         return;
     }
     
-    const memberIds = state.adminFilters.memberIds;
-    const filteredDays = state.adminFilters.days;
-    const filteredHours = state.adminFilters.hours;
-    
-    const membersToConsider = memberIds.length > 0
-        ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
-        : Object.values(state.room.members);
-
-    if (membersToConsider.length === 0) {
-        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào thỏa mãn bộ lọc.</p></div>`;
-        return;
-    }
-
-    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
-    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
-    const minDur = state.adminFilters.minDuration || 1;
-    const minFree = state.adminFilters.minFree || 0;
+    // Fixed suggestions: use all members, all days, all hours (no filters)
+    const membersToConsider = Object.values(state.room.members);
+    const activeDays = getRoomDays();
+    const activeHours = HOURS;
+    const minDur = 1;
+    const minFree = 0;
 
     let topBlocks = [];
     let topSlots = [];
@@ -1117,7 +1106,7 @@ function updateSuggestions() {
         suggestionsContent.innerHTML = `
             <div class="empty-state">
                 <i class="fa-solid fa-hourglass-empty"></i>
-                <p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p>
+                <p>Không tìm thấy khung giờ rảnh nào.</p>
             </div>
         `;
         return;
