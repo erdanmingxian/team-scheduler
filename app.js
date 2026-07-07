@@ -497,6 +497,8 @@ async function loadRoomData(isBackground = false) {
         // Vẽ lại giao diện lưới lịch biểu của Admin
         renderAdminGrid();
         updateAdminDetails();
+        updateSuggestions();
+        renderHeatmapStats();
         
         // Vẽ lại lưới của Thành viên nếu có thành viên đang chọn
         if (state.currentMemberId && state.room.members[state.currentMemberId]) {
@@ -1000,6 +1002,72 @@ function updateAdminDetails() {
         return;
     }
     
+    // Only show manual selection results (when user clicks on cells)
+    if (state.selectedAdminCells.length === 0) {
+        detailsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-hand-pointer"></i>
+                <p>Nhấp vào các ô lưới lịch biểu để xem chi tiết thông tin lọc thủ công.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const memberIds = state.adminFilters.memberIds;
+    const membersToConsider = memberIds.length > 0
+        ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
+        : Object.values(state.room.members);
+
+    if (membersToConsider.length === 0) {
+        detailsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào thỏa mãn bộ lọc.</p></div>`;
+        return;
+    }
+
+    let html = `<h4><i class="fa-solid fa-magnifying-glass"></i> Thông tin lọc thủ công</h4>`;
+    html += `<div class="detail-stat"><span class="number">${state.selectedAdminCells.length}</span><span class="total">ô đã chọn</span></div>`;
+    
+    // Show selected cells info
+    html += `<ul class="member-list">`;
+    state.selectedAdminCells.forEach(cell => {
+        const freeMembers = membersToConsider.filter(m => m.schedule[cell.day] && m.schedule[cell.day].includes(cell.hour));
+        const busyMembers = membersToConsider.filter(m => !m.schedule[cell.day] || !m.schedule[cell.day].includes(cell.hour));
+        
+        html += `
+            <li class="member-list-item" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <strong>${getRoomDayLabel(cell.day)} · ${cell.hour}–${getNextHourString(cell.hour)}</strong>
+                    <span class="detail-badge slot-badge">${freeMembers.length}/${membersToConsider.length} rảnh</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                    <span style="color: #91B2CB;">● Rảnh (${freeMembers.length}):</span> ${freeMembers.map(m => m.name).join(', ') || 'Không'}
+                </div>
+                ${busyMembers.length > 0 ? `
+                <div style="font-size: 0.8rem; color: var(--text-muted);">
+                    <span style="color: var(--color-danger);">● Bận (${busyMembers.length}):</span> ${busyMembers.map(m => m.name).join(', ')}
+                </div>
+                ` : ''}
+            </li>
+        `;
+    });
+    html += `</ul>`;
+    
+    detailsContent.innerHTML = html;
+}
+
+function updateSuggestions() {
+    const suggestionsContent = document.getElementById('admin-suggestions-content');
+    if (!suggestionsContent) return;
+    
+    if (!state.room || !state.room.members || Object.keys(state.room.members).length === 0) {
+        suggestionsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-users-slash"></i>
+                <p>Chưa có thành viên nào điền lịch.</p>
+            </div>
+        `;
+        return;
+    }
+    
     const memberIds = state.adminFilters.memberIds;
     const filteredDays = state.adminFilters.days;
     const filteredHours = state.adminFilters.hours;
@@ -1009,7 +1077,7 @@ function updateAdminDetails() {
         : Object.values(state.room.members);
 
     if (membersToConsider.length === 0) {
-        detailsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào thỏa mãn bộ lọc.</p></div>`;
+        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào thỏa mãn bộ lọc.</p></div>`;
         return;
     }
 
@@ -1046,7 +1114,7 @@ function updateAdminDetails() {
     }
 
     if (topBlocks.length === 0 && topSlots.length === 0) {
-        detailsContent.innerHTML = `
+        suggestionsContent.innerHTML = `
             <div class="empty-state">
                 <i class="fa-solid fa-hourglass-empty"></i>
                 <p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p>
@@ -1055,7 +1123,7 @@ function updateAdminDetails() {
         return;
     }
 
-    let html = `<h4><i class="fa-solid fa-ranking-star"></i> Khung giờ gợi ý tối ưu</h4><ul class="suggestion-list">`;
+    let html = `<ul class="suggestion-list">`;
     
     if (topBlocks.length > 0) {
         topBlocks.forEach((block, index) => {
@@ -1098,7 +1166,7 @@ function updateAdminDetails() {
     }
     
     html += `</ul>`;
-    detailsContent.innerHTML = html;
+    suggestionsContent.innerHTML = html;
 }
 
 // BẢNG QUẢN TRỊ (ADMIN DASHBOARD) HELPER FUNCTIONS
@@ -1116,6 +1184,8 @@ function unlockAdminView() {
     
     renderAdminGrid();
     updateAdminDetails();
+    updateSuggestions();
+    renderHeatmapStats();
 }
 
 function populateFilterTimeDropdowns() {
@@ -1185,6 +1255,8 @@ function selectDaysFilter(type) { // type: 'weekdays' hoặc 'weekends'
     
     renderAdminGrid();
     updateAdminDetails();
+    updateSuggestions();
+    renderHeatmapStats();
 }
 
 function applyTimeRangeFilter() {
@@ -1228,6 +1300,8 @@ function applyTimeRangeFilter() {
     
     renderAdminGrid();
     updateAdminDetails();
+    updateSuggestions();
+    renderHeatmapStats();
 }
 
 function applyPreset(presetType) {
@@ -2081,6 +2155,85 @@ function setupHourCheckboxEvents() {
             }
         });
     }
+}
+
+function renderHeatmapStats() {
+    const daysBarsContainer = document.getElementById('heatmap-days-bars');
+    const hoursBarsContainer = document.getElementById('heatmap-hours-bars');
+    
+    if (!daysBarsContainer || !hoursBarsContainer) return;
+    
+    if (!state.room || !state.room.members || Object.keys(state.room.members).length === 0) {
+        daysBarsContainer.innerHTML = '<div class="empty-state"><p>Chưa có dữ liệu</p></div>';
+        hoursBarsContainer.innerHTML = '<div class="empty-state"><p>Chưa có dữ liệu</p></div>';
+        return;
+    }
+    
+    const memberIds = state.adminFilters.memberIds;
+    const membersToConsider = memberIds.length > 0
+        ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
+        : Object.values(state.room.members);
+    
+    const filteredDays = state.adminFilters.days;
+    const filteredHours = state.adminFilters.hours;
+    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
+    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
+    
+    // Calculate free slots by day
+    const dayStats = {};
+    activeDays.forEach(day => {
+        let totalFree = 0;
+        activeHours.forEach(hour => {
+            const freeCount = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
+            totalFree += freeCount;
+        });
+        dayStats[day] = totalFree;
+    });
+    
+    // Calculate free slots by hour
+    const hourStats = {};
+    activeHours.forEach(hour => {
+        let totalFree = 0;
+        activeDays.forEach(day => {
+            const freeCount = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
+            totalFree += freeCount;
+        });
+        hourStats[hour] = totalFree;
+    });
+    
+    // Find max values for scaling
+    const maxDayFree = Math.max(...Object.values(dayStats), 1);
+    const maxHourFree = Math.max(...Object.values(hourStats), 1);
+    
+    // Render day bars (column chart)
+    let daysHtml = '<div class="heatmap-chart-container">';
+    activeDays.forEach(day => {
+        const value = dayStats[day] || 0;
+        const heightPercent = (value / maxDayFree) * 100;
+        daysHtml += `
+            <div class="heatmap-bar-wrapper">
+                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
+                <div class="heatmap-bar-label">${getRoomDayLabel(day).split(' ')[0]}</div>
+            </div>
+        `;
+    });
+    daysHtml += '</div>';
+    daysBarsContainer.innerHTML = daysHtml;
+    
+    // Render hour bars (column chart)
+    let hoursHtml = '<div class="heatmap-chart-container">';
+    activeHours.forEach(hour => {
+        const value = hourStats[hour] || 0;
+        const heightPercent = (value / maxHourFree) * 100;
+        hoursHtml += `
+            <div class="heatmap-bar-wrapper">
+                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
+                <div class="heatmap-bar-label">${hour}</div>
+            </div>
+        `;
+    });
+    hoursHtml += '</div>';
+    hoursBarsContainer.innerHTML = hoursHtml;
 }
 
 function showToast(message, type = 'success') {

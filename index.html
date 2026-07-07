@@ -124,9 +124,6 @@
             </div>
             
             <div class="header-right">
-                <button type="button" class="btn btn-primary hidden" id="btn-open-filter-modal" style="margin-right: 12px;">
-                    <i class="fa-solid fa-filter"></i> Lọc
-                </button>
                 <button type="button" class="btn btn-success" id="btn-share-link">
                     <i class="fa-solid fa-share-nodes"></i> Sao chép link chia sẻ
                 </button>
@@ -295,8 +292,13 @@
                                     <h2><i class="fa-solid fa-calendar-week"></i> BẢN ĐỒ LỊCH BIỂU TỔNG HỢP</h2>
                                     <p class="subtitle">Nhấp vào ô bất kỳ để xem danh sách chi tiết.</p>
                                 </div>
-                                <div class="total-members-badge">
-                                    Tổng số thành viên: <strong id="admin-total-members-count">0</strong>
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <button type="button" class="btn btn-primary hidden" id="btn-open-filter-modal">
+                                        <i class="fa-solid fa-filter"></i> Lọc
+                                    </button>
+                                    <div class="total-members-badge">
+                                        Tổng số thành viên: <strong id="admin-total-members-count">0</strong>
+                                    </div>
                                 </div>
                             </div>
                             <div class="card-body">
