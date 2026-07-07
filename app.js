@@ -2252,21 +2252,24 @@ function renderHeatmapStats() {
         hourStats[hour] = totalFree;
     });
     
-    console.log('Stats calculated', { dayStats, hourStats });
+    console.log('Stats calculated', { dayStats, hourStats, maxDayFree: Math.max(...Object.values(dayStats)), maxHourFree: Math.max(...Object.values(hourStats)) });
     
     // Find max values for scaling
     const maxDayFree = Math.max(...Object.values(dayStats), 1);
     const maxHourFree = Math.max(...Object.values(hourStats), 1);
+    
+    console.log('Max values', { maxDayFree, maxHourFree });
     
     // Render day bars (column chart)
     let daysHtml = '<div class="heatmap-chart-container">';
     activeDays.forEach(day => {
         const value = dayStats[day] || 0;
         const heightPercent = (value / maxDayFree) * 100;
+        console.log(`Day ${day}: value=${value}, heightPercent=${heightPercent}%`);
         daysHtml += `
             <div class="heatmap-bar-wrapper">
-                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
                 <div class="heatmap-bar-value">${value}</div>
+                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
                 <div class="heatmap-bar-label">${getRoomDayLabel(day).split(' ')[0]}</div>
             </div>
         `;
@@ -2279,10 +2282,11 @@ function renderHeatmapStats() {
     activeHours.forEach(hour => {
         const value = hourStats[hour] || 0;
         const heightPercent = (value / maxHourFree) * 100;
+        console.log(`Hour ${hour}: value=${value}, heightPercent=${heightPercent}%`);
         hoursHtml += `
             <div class="heatmap-bar-wrapper">
-                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
                 <div class="heatmap-bar-value">${value}</div>
+                <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
                 <div class="heatmap-bar-label">${hour}</div>
             </div>
         `;
