@@ -1,4 +1,4 @@
-/* CSS variables - Purple to Navy palette */
+﻿/* CSS variables - Purple to Navy palette */
 :root {
     --bg-main: #0e0b1e; /* Deepest navy-purple base */
     --bg-card: rgba(21, 15, 45, 0.75);
@@ -932,15 +932,15 @@ input:checked + .slider:before {
 }
 
 .grid-slot-cell.admin-cell.selected-cell {
-    box-shadow: 0 0 0 2px var(--color-highlight);
-    border-radius: 4px;
+    outline: 2px solid var(--color-highlight);
+    outline-offset: -2px;
     z-index: 3;
     animation: adminCellGlow 1.5s infinite alternate;
 }
 
 @keyframes adminCellGlow {
-    from { box-shadow: 0 0 0 2px var(--color-highlight); }
-    to { box-shadow: 0 0 10px 3px rgba(192, 223, 228, 0.8); }
+    from { outline-color: var(--color-highlight); }
+    to   { outline-color: rgba(192, 223, 228, 1); filter: brightness(1.12); }
 }
 
 /* Calendar Picker in Creation Form */
@@ -1803,14 +1803,15 @@ input:checked + .slider:before {
    BEST SLOT HIGHLIGHT
    ============================================================ */
 @keyframes bestSlotPulse {
-    0%   { box-shadow: 0 0 0 2px #eab308, 0 0 0px 0px rgba(234, 179, 8, 0); }
-    50%  { box-shadow: 0 0 0 2px #eab308, 0 0 12px 4px rgba(234, 179, 8, 0.45); }
-    100% { box-shadow: 0 0 0 2px #eab308, 0 0 0px 0px rgba(234, 179, 8, 0); }
+    0%   { outline-color: rgba(234, 179, 8, 0.5); }
+    50%  { outline-color: #eab308; filter: brightness(1.15); }
+    100% { outline-color: rgba(234, 179, 8, 0.5); }
 }
 
 .grid-slot-cell.admin-cell.best-slot {
+    outline: 2px solid #eab308;
+    outline-offset: -2px;
     animation: bestSlotPulse 2s ease-in-out infinite;
-    border-radius: 3px;
     z-index: 2;
 }
 
@@ -1858,5 +1859,121 @@ input:checked + .slider:before {
     padding: 0.1rem 0.45rem;
     border-radius: 9999px;
     font-weight: 500;
+}
+
+/* ============================================================
+   CELL INFO POPUP (floating near clicked cell)
+   ============================================================ */
+.cell-popup {
+    position: fixed;
+    z-index: 9999;
+    min-width: 200px;
+    max-width: 260px;
+    background: rgba(18, 12, 40, 0.97);
+    border: 1px solid rgba(145, 178, 203, 0.3);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(145,178,203,0.08);
+    backdrop-filter: blur(16px);
+    padding: 0.75rem 1rem 0.85rem;
+    pointer-events: auto;
+    animation: popupIn 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: top left;
+}
+
+.cell-popup.hidden { display: none !important; }
+
+@keyframes popupIn {
+    from { opacity: 0; transform: scale(0.88) translateY(-6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.cell-popup-close {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+.cell-popup-close:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.07);
+}
+
+.cell-popup-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 0.6rem;
+    padding-right: 1.2rem;
+}
+
+.cell-popup-body .popup-section {
+    margin-bottom: 0.5rem;
+}
+
+.cell-popup-body .popup-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 0.25rem;
+}
+
+.cell-popup-body .popup-member-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+}
+
+.cell-popup-body .popup-member-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    padding: 0.18rem 0.3rem;
+    border-radius: 5px;
+}
+
+.cell-popup-body .popup-member-item.free {
+    color: #86efac;
+}
+
+.cell-popup-body .popup-member-item.busy {
+    color: var(--text-muted);
+}
+
+.cell-popup-body .popup-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.cell-popup-body .popup-dot.free  { background: #22c55e; }
+.cell-popup-body .popup-dot.busy  { background: rgba(255,255,255,0.18); }
+
+.cell-popup-divider {
+    height: 1px;
+    background: rgba(145,178,203,0.12);
+    margin: 0.45rem 0;
+}
+
+.cell-popup-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: 0.3rem;
 }
 

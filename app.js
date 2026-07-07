@@ -426,6 +426,7 @@ async function initRoomView() {
     buildMemberGrid();
     buildAdminGrid();
     populateAdminHoursList();
+    populateFilterTimeDropdowns();
     
     // Tải dữ liệu phòng
     const success = await loadRoomData();
@@ -520,6 +521,11 @@ function updateMemberCounts() {
     const count = Object.keys(state.room.members).length;
     document.getElementById('member-count-value').textContent = count;
     document.getElementById('admin-total-members-count').textContent = count;
+    
+    const minFreeSlider = document.getElementById('admin-filter-min-free');
+    if (minFreeSlider) {
+        minFreeSlider.max = count;
+    }
 }
 
 // Cập nhật danh sách thả xuống ở tab Thành viên + danh sách checkbox Admin
@@ -732,6 +738,23 @@ function buildMemberGrid() {
                 renderMemberGridDensity();
                 e.preventDefault();
             });
+
+            // Logic kéo thả trên di động
+            slotCell.addEventListener('touchstart', (e) => {
+                if (state.currentMemberId === null) return;
+                isDragging = true;
+                
+                if (slotCell.classList.contains('state-free')) {
+                    dragMode = 'busy';
+                    slotCell.classList.remove('state-free');
+                } else {
+                    dragMode = 'free';
+                    slotCell.classList.add('state-free');
+                }
+                
+                renderMemberGridDensity();
+                e.preventDefault();
+            }, { passive: false });
             
             slotCell.addEventListener('mouseover', () => {
                 if (!isDragging || state.currentMemberId === null) return;
@@ -848,6 +871,25 @@ function buildAdminGrid() {
                 e.preventDefault();
             });
 
+            slotCell.addEventListener('touchstart', (e) => {
+                isAdminDragging = true;
+                const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
+                if (isAlreadySelected) {
+                    adminDragMode = 'deselect';
+                    state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
+                } else {
+                    adminDragMode = 'select';
+                    state.selectedAdminCells.push({day, hour});
+                }
+                
+                state.selectedAdminCell.day = day;
+                state.selectedAdminCell.hour = hour;
+                
+                renderAdminGrid();
+                updateAdminDetails();
+                e.preventDefault();
+            }, { passive: false });
+
             slotCell.addEventListener('mouseover', () => {
                 if (!isAdminDragging) return;
                 const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
@@ -948,21 +990,20 @@ function updateAdminDetails() {
     const detailsContent = document.getElementById('admin-details-content');
     if (!detailsContent) return;
     
-    const memberIds = state.adminFilters.memberIds;
-    const filteredDays = state.adminFilters.days;
-    const filteredHours = state.adminFilters.hours;
-    const hasFilter = memberIds.length > 0 || filteredDays.length > 0 || filteredHours.length > 0;
-    
-    if (!hasFilter) {
+    if (!state.room || !state.room.members || Object.keys(state.room.members).length === 0) {
         detailsContent.innerHTML = `
             <div class="empty-state">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <p>Hãy chọn bộ lọc để phân tích chi tiết. Click vào ô trên lịch để xem danh sách bình chọn.</p>
+                <i class="fa-solid fa-users-slash"></i>
+                <p>Chưa có thành viên nào điền lịch. Hãy gửi link cho mọi người tham gia điền lịch trước.</p>
             </div>
         `;
         return;
     }
-
+    
+    const memberIds = state.adminFilters.memberIds;
+    const filteredDays = state.adminFilters.days;
+    const filteredHours = state.adminFilters.hours;
+    
     const membersToConsider = memberIds.length > 0
         ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
         : Object.values(state.room.members);
@@ -975,7 +1016,7 @@ function updateAdminDetails() {
     const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
     const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
     const minDur = state.adminFilters.minDuration || 1;
-    const minFree = state.adminFilters.minFree || 1;
+    const minFree = state.adminFilters.minFree || 0;
 
     let topBlocks = [];
     let topSlots = [];
@@ -983,7 +1024,7 @@ function updateAdminDetails() {
     if (minDur > 1) {
         const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDur, minFree);
         blocks.sort((a, b) => b.freeCount - a.freeCount);
-        topBlocks = blocks.slice(0, 5);
+        topBlocks = blocks.slice(0, 10);
     } else {
         const allSlots = [];
         activeDays.forEach(day => {
@@ -1001,15 +1042,20 @@ function updateAdminDetails() {
             });
         });
         allSlots.sort((a, b) => b.freeCount - a.freeCount);
-        topSlots = allSlots.slice(0, 5);
+        topSlots = allSlots.slice(0, 10);
     }
 
     if (topBlocks.length === 0 && topSlots.length === 0) {
-        detailsContent.innerHTML = `<div class="empty-state"><p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p></div>`;
+        detailsContent.innerHTML = `
+            <div class="empty-state">
+                <i class="fa-solid fa-hourglass-empty"></i>
+                <p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p>
+            </div>
+        `;
         return;
     }
 
-    let html = `<h4><i class="fa-solid fa-ranking-star"></i> Khung giờ gợi ý</h4><ul class="suggestion-list">`;
+    let html = `<h4><i class="fa-solid fa-ranking-star"></i> Khung giờ gợi ý tối ưu</h4><ul class="suggestion-list">`;
     
     if (topBlocks.length > 0) {
         topBlocks.forEach((block, index) => {
@@ -1021,11 +1067,11 @@ function updateAdminDetails() {
                         <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${block.endHour}</strong>
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <span class="block-duration-tag">${block.duration}h liên tiếp</span>
-                            <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
+                            <span class="suggestion-tier-badge tier-badge-${tier}">${pct}% (${block.freeCount}/${membersToConsider.length} người)</span>
                         </div>
                     </div>
-                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        <strong>Rảnh:</strong> ${block.freeNames.join(', ')} (${block.freeCount}/${membersToConsider.length} người)
+                    <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                        <strong>Người rảnh:</strong> ${block.freeNames.join(', ')}
                     </div>
                     <div class="suggestion-progress-wrap">
                         <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
@@ -1040,11 +1086,11 @@ function updateAdminDetails() {
             html += `
                 <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
                     <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}</strong>
-                        <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
+                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
+                        <span class="suggestion-tier-badge tier-badge-${tier}">${pct}% (${slot.freeCount}/${slot.total} người)</span>
                     </div>
-                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        <strong>Rảnh:</strong> ${slot.freeNames.join(', ')} (${slot.freeCount}/${slot.total} người)
+                    <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                        <strong>Người rảnh:</strong> ${slot.freeNames.join(', ')}
                     </div>
                 </li>
             `;
@@ -1055,101 +1101,227 @@ function updateAdminDetails() {
     detailsContent.innerHTML = html;
 }
 
-// Add popup helpers (place after palette generation)
-function createCellPopupIfNeeded() {
-    if (document.getElementById('cell-popup')) return;
-    const popup = document.createElement('div');
-    popup.id = 'cell-popup';
-    popup.style.position = 'absolute';
-    popup.style.zIndex = 9999;
-    popup.style.minWidth = '200px';
-    popup.style.maxWidth = '360px';
-    popup.style.padding = '0.6rem';
-    popup.style.borderRadius = '8px';
-    popup.style.boxShadow = '0 8px 24px rgba(2,6,23,0.6)';
-    popup.style.background = 'var(--bg-elevated, rgba(10,10,12,0.9))';
-    popup.style.color = 'var(--text-primary)';
-    popup.style.display = 'none';
-    popup.style.fontSize = '0.9rem';
-    popup.addEventListener('click', (e) => e.stopPropagation());
-    document.body.appendChild(popup);
-
-    window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') hideCellPopup();
-    });
-    document.addEventListener('click', () => hideCellPopup());
+// BẢNG QUẢN TRỊ (ADMIN DASHBOARD) HELPER FUNCTIONS
+function unlockAdminView() {
+    state.isAdminUnlocked = true;
+    sessionStorage.setItem(`teamsync_unlocked_${state.currentRoomId}`, 'true');
+    const lockCard = document.getElementById('admin-lock-card');
+    const workspaceContent = document.getElementById('admin-workspace-content');
+    if (lockCard) lockCard.classList.add('hidden');
+    if (workspaceContent) workspaceContent.classList.remove('hidden');
+    
+    // Hiện nút lọc trên cùng bên phải khi admin mở khóa
+    const filterBtn = document.getElementById('btn-open-filter-modal');
+    if (filterBtn) filterBtn.classList.remove('hidden');
+    
+    renderAdminGrid();
+    updateAdminDetails();
 }
 
-function showCellPopup(anchorCell, htmlContent) {
-    createCellPopupIfNeeded();
-    const popup = document.getElementById('cell-popup');
-    popup.innerHTML = htmlContent;
+function populateFilterTimeDropdowns() {
+    const startSelect = document.getElementById('filter-time-start');
+    const endSelect = document.getElementById('filter-time-end');
+    if (!startSelect || !endSelect) return;
+    
+    startSelect.innerHTML = '';
+    endSelect.innerHTML = '';
+    
+    HOURS.forEach(hour => {
+        const optStart = document.createElement('option');
+        optStart.value = hour;
+        optStart.textContent = hour;
+        startSelect.appendChild(optStart);
+        
+        const nextHour = getNextHourString(hour);
+        const optEnd = document.createElement('option');
+        optEnd.value = nextHour;
+        optEnd.textContent = nextHour;
+        endSelect.appendChild(optEnd);
+    });
+    
+    // Giá trị mặc định: từ giờ đầu tiên đến giờ kết thúc của slot cuối cùng
+    startSelect.value = HOURS[0];
+    endSelect.value = getNextHourString(HOURS[HOURS.length - 1]);
+}
 
-    popup.style.display = 'block';
-    popup.style.opacity = '0';
-    popup.style.transform = 'translateY(-6px)';
-
-    const rect = anchorCell.getBoundingClientRect();
-    const popupRect = popup.getBoundingClientRect();
-    const margin = 8;
-    // Prefer right side
-    let left = rect.right + margin + window.scrollX;
-    if (left + popupRect.width + margin > window.innerWidth + window.scrollX) {
-        left = rect.left - popupRect.width - margin + window.scrollX;
+function selectDaysFilter(type) { // type: 'weekdays' hoặc 'weekends'
+    const activeDays = getRoomDays();
+    let selectedDays = [];
+    
+    if (state.room && state.room.scheduleType === 'date') {
+        selectedDays = activeDays.filter(day => {
+            const d = new Date(day).getDay();
+            if (type === 'weekdays') return d >= 1 && d <= 5;
+            if (type === 'weekends') return d === 0 || d === 6;
+            return false;
+        });
+    } else {
+        if (type === 'weekdays') {
+            selectedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        } else if (type === 'weekends') {
+            selectedDays = ['Saturday', 'Sunday'];
+        }
     }
-    if (left < window.scrollX + margin) left = window.scrollX + margin;
-
-    let top = rect.top + window.scrollY + (rect.height / 2) - (popupRect.height / 2);
-    const minTop = window.scrollY + margin;
-    const maxTop = window.scrollY + window.innerHeight - popupRect.height - margin;
-    if (top < minTop) top = minTop;
-    if (top > maxTop) top = maxTop;
-
-    popup.style.left = `${Math.round(left)}px`;
-    popup.style.top = `${Math.round(top)}px`;
-
-    requestAnimationFrame(() => {
-        popup.style.transition = 'opacity 160ms ease, transform 160ms ease';
-        popup.style.opacity = '1';
-        popup.style.transform = 'translateY(0)';
+    
+    const dayAllCb = document.getElementById('admin-filter-day-all');
+    if (dayAllCb) dayAllCb.checked = false;
+    
+    document.querySelectorAll('.admin-day-check').forEach(cb => {
+        const val = cb.value;
+        const shouldCheck = selectedDays.includes(val);
+        cb.checked = shouldCheck;
+        const label = cb.closest('.check-item-label');
+        if (shouldCheck) {
+            label?.classList.add('is-selected');
+        } else {
+            label?.classList.remove('is-selected');
+        }
     });
+    
+    state.adminFilters.days = selectedDays;
+    if (selectedDays.length === 0 && dayAllCb) {
+        dayAllCb.checked = true;
+    }
+    
+    renderAdminGrid();
+    updateAdminDetails();
 }
 
-function hideCellPopup() {
-    const popup = document.getElementById('cell-popup');
-    if (!popup || popup.style.display === 'none') return;
-    popup.style.transition = 'opacity 140ms ease, transform 140ms ease';
-    popup.style.opacity = '0';
-    popup.style.transform = 'translateY(-6px)';
-    setTimeout(() => {
-        if (popup) popup.style.display = 'none';
-    }, 160);
+function applyTimeRangeFilter() {
+    const startVal = document.getElementById('filter-time-start').value;
+    const endVal = document.getElementById('filter-time-end').value;
+    
+    const toMinutes = (timeStr) => {
+        const [h, m] = timeStr.split(':').map(Number);
+        if (h === 0) return 24 * 60; // 00:00 ở cuối ngày
+        return h * 60 + m;
+    };
+    
+    const startMin = toMinutes(startVal);
+    const endMin = toMinutes(endVal);
+    
+    const selectedHours = HOURS.filter(hour => {
+        const hourMin = toMinutes(hour);
+        return hourMin >= startMin && hourMin < endMin;
+    });
+    
+    // Cập nhật checkboxes
+    const hourAllCb = document.getElementById('admin-filter-hour-all');
+    if (hourAllCb) hourAllCb.checked = false;
+    
+    document.querySelectorAll('.admin-hour-check').forEach(cb => {
+        const val = cb.value;
+        const shouldCheck = selectedHours.includes(val);
+        cb.checked = shouldCheck;
+        const label = cb.closest('.check-item-label');
+        if (shouldCheck) {
+            label?.classList.add('is-selected');
+        } else {
+            label?.classList.remove('is-selected');
+        }
+    });
+    
+    state.adminFilters.hours = selectedHours;
+    if (selectedHours.length === 0 && hourAllCb) {
+        hourAllCb.checked = true;
+    }
+    
+    renderAdminGrid();
+    updateAdminDetails();
 }
 
-function generateCellDetailHtml(day, hour, membersToConsider) {
-    const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
-    const busyMembers = membersToConsider.filter(m => !(m.schedule[day] && m.schedule[day].includes(hour)));
-
-    const freeHtml = freeMembers.length
-        ? `<ul style="margin:0; padding-left:0.6rem; max-height:220px; overflow:auto;">${freeMembers.map(m => `<li style="padding:0.25rem 0;"><strong>${m.name}</strong></li>`).join('')}</ul>`
-        : `<div style="color:var(--text-secondary);">Không có thành viên rảnh.</div>`;
-
-    const busyHtml = busyMembers.length ? `<div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.85rem;">Bận: ${busyMembers.map(m => m.name).join(', ')}</div>` : '';
-
-    return `
-        <div>
-            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
-                <strong style="font-size:0.95rem;">${getRoomDayLabel(day)}</strong>
-                <span style="font-size:0.85rem; color:var(--text-secondary);">${hour} - ${getNextHourString(hour)}</span>
-            </div>
-            ${freeHtml}
-            ${busyHtml}
-            <div style="margin-top:0.6rem; display:flex; gap:0.5rem; justify-content:flex-end;">
-                <button class="btn btn-sm btn-copy-slot" data-day="${day}" data-hour="${hour}" style="font-size:0.8rem;">Sao chép</button>
-                <button class="btn btn-sm btn-close-popup" style="font-size:0.8rem;">Đóng</button>
-            </div>
-        </div>
-    `;
+function applyPreset(presetType) {
+    const dayAllCb = document.getElementById('admin-filter-day-all');
+    const hourAllCb = document.getElementById('admin-filter-hour-all');
+    
+    // Đặt lại các bộ lọc ngày
+    if (dayAllCb) dayAllCb.checked = true;
+    document.querySelectorAll('.admin-day-check').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.check-item-label')?.classList.remove('is-selected');
+    });
+    state.adminFilters.days = [];
+    
+    // Đặt lại các bộ lọc giờ
+    if (hourAllCb) hourAllCb.checked = true;
+    document.querySelectorAll('.admin-hour-check').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.check-item-label')?.classList.remove('is-selected');
+    });
+    state.adminFilters.hours = [];
+    
+    if (presetType === 'workhours') {
+        // Ngày thường
+        const activeDays = getRoomDays();
+        let selectedDays = [];
+        if (state.room && state.room.scheduleType === 'date') {
+            selectedDays = activeDays.filter(day => {
+                const d = new Date(day).getDay();
+                return d >= 1 && d <= 5;
+            });
+        } else {
+            selectedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        }
+        if (dayAllCb) dayAllCb.checked = false;
+        document.querySelectorAll('.admin-day-check').forEach(cb => {
+            const shouldCheck = selectedDays.includes(cb.value);
+            cb.checked = shouldCheck;
+            if (shouldCheck) cb.closest('.check-item-label')?.classList.add('is-selected');
+        });
+        state.adminFilters.days = selectedDays;
+        
+        // Giờ hành chính: 08:00 đến 17:00
+        document.getElementById('filter-time-start').value = '08:00';
+        document.getElementById('filter-time-end').value = '17:00';
+        applyTimeRangeFilter();
+        
+    } else if (presetType === 'evening') {
+        // Cả tuần
+        if (dayAllCb) dayAllCb.checked = true;
+        state.adminFilters.days = [];
+        
+        // Buổi tối: 18:00 đến 00:00
+        document.getElementById('filter-time-start').value = '18:00';
+        document.getElementById('filter-time-end').value = '00:00';
+        applyTimeRangeFilter();
+        
+    } else if (presetType === 'weekend') {
+        // Cuối tuần
+        const activeDays = getRoomDays();
+        let selectedDays = [];
+        if (state.room && state.room.scheduleType === 'date') {
+            selectedDays = activeDays.filter(day => {
+                const d = new Date(day).getDay();
+                return d === 0 || d === 6;
+            });
+        } else {
+            selectedDays = ['Saturday', 'Sunday'];
+        }
+        if (dayAllCb) dayAllCb.checked = false;
+        document.querySelectorAll('.admin-day-check').forEach(cb => {
+            const shouldCheck = selectedDays.includes(cb.value);
+            cb.checked = shouldCheck;
+            if (shouldCheck) cb.closest('.check-item-label')?.classList.add('is-selected');
+        });
+        state.adminFilters.days = selectedDays;
+        
+        // Cả ngày
+        if (hourAllCb) hourAllCb.checked = true;
+        state.adminFilters.hours = [];
+        
+    } else if (presetType === 'morning') {
+        // Cả tuần
+        if (dayAllCb) dayAllCb.checked = true;
+        state.adminFilters.days = [];
+        
+        // Sáng sớm: 06:00 đến 12:00
+        document.getElementById('filter-time-start').value = '06:00';
+        document.getElementById('filter-time-end').value = '12:00';
+        applyTimeRangeFilter();
+    }
+    
+    renderAdminGrid();
+    updateAdminDetails();
 }
 
 // Attach delegated handlers for popup buttons
@@ -1381,11 +1553,117 @@ function setupGlobalEventListeners() {
     // Hour checkboxes
     setupHourCheckboxEvents();
     
+    // 10. Tab Admin: Bộ lọc Modal & các điều khiển
+    const adminFilterModal = document.getElementById('admin-filter-modal');
+    const btnOpenFilterModal = document.getElementById('btn-open-filter-modal');
+    const btnCloseFilterModal = document.getElementById('btn-close-filter-modal');
+    const btnApplyFilters = document.getElementById('btn-apply-filters');
+    
+    if (btnOpenFilterModal && adminFilterModal) {
+        btnOpenFilterModal.addEventListener('click', () => {
+            adminFilterModal.classList.remove('hidden');
+        });
+    }
+    
+    const hideFilterModal = () => {
+        if (adminFilterModal) adminFilterModal.classList.add('hidden');
+    };
+    
+    if (btnCloseFilterModal) btnCloseFilterModal.addEventListener('click', hideFilterModal);
+    if (btnApplyFilters) btnApplyFilters.addEventListener('click', hideFilterModal);
+    if (adminFilterModal) {
+        adminFilterModal.addEventListener('click', (e) => {
+            if (e.target === adminFilterModal) hideFilterModal();
+        });
+    }
+
+    // Các sự kiện cho Preset
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const preset = btn.getAttribute('data-preset');
+            applyPreset(preset);
+        });
+    });
+
+    // Các nút chọn nhanh khung giờ
+    const btnFilterMorning = document.getElementById('btn-filter-morning');
+    const btnFilterAfternoon = document.getElementById('btn-filter-afternoon');
+    const btnFilterEvening = document.getElementById('btn-filter-evening');
+    
+    if (btnFilterMorning) {
+        btnFilterMorning.addEventListener('click', () => {
+            document.getElementById('filter-time-start').value = '06:00';
+            document.getElementById('filter-time-end').value = '12:00';
+            applyTimeRangeFilter();
+        });
+    }
+    if (btnFilterAfternoon) {
+        btnFilterAfternoon.addEventListener('click', () => {
+            document.getElementById('filter-time-start').value = '12:00';
+            document.getElementById('filter-time-end').value = '18:00';
+            applyTimeRangeFilter();
+        });
+    }
+    if (btnFilterEvening) {
+        btnFilterEvening.addEventListener('click', () => {
+            document.getElementById('filter-time-start').value = '18:00';
+            document.getElementById('filter-time-end').value = '00:00';
+            applyTimeRangeFilter();
+        });
+    }
+
+    // Sự kiện thay đổi của Dropdown lọc giờ
+    const startSelect = document.getElementById('filter-time-start');
+    const endSelect = document.getElementById('filter-time-end');
+    if (startSelect) startSelect.addEventListener('change', applyTimeRangeFilter);
+    if (endSelect) endSelect.addEventListener('change', applyTimeRangeFilter);
+
+    // Các nút chọn nhanh ngày (Ngày thường / Cuối tuần)
+    const btnFilterWeekdays = document.getElementById('btn-filter-weekdays');
+    const btnFilterWeekends = document.getElementById('btn-filter-weekends');
+    
+    if (btnFilterWeekdays) {
+        btnFilterWeekdays.addEventListener('click', () => {
+            selectDaysFilter('weekdays');
+        });
+    }
+    if (btnFilterWeekends) {
+        btnFilterWeekends.addEventListener('click', () => {
+            selectDaysFilter('weekends');
+        });
+    }
+
+    // Thanh trượt lọc số người rảnh tối thiểu
+    const minFreeSlider = document.getElementById('admin-filter-min-free');
+    const minFreeVal = document.getElementById('admin-filter-min-free-val');
+    if (minFreeSlider && minFreeVal) {
+        minFreeSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.adminFilters.minFree = val;
+            minFreeVal.textContent = val === 0 ? "Tất cả" : `${val} người`;
+            renderAdminGrid();
+            updateAdminDetails();
+        });
+    }
+
+    // Các nút chọn thời lượng liên tiếp
+    document.querySelectorAll('.btn-duration').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.btn-duration').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.adminFilters.minDuration = parseInt(btn.getAttribute('data-dur'));
+            renderAdminGrid();
+            updateAdminDetails();
+        });
+    });
+    
     if (btnResetFilters) {
         btnResetFilters.addEventListener('click', () => {
             state.adminFilters.memberIds = [];
             state.adminFilters.days = [];
             state.adminFilters.hours = [];
+            state.adminFilters.minFree = 0;
+            state.adminFilters.minDuration = 1;
             state.selectedAdminCell.day = null;
             state.selectedAdminCell.hour = null;
             
@@ -1412,6 +1690,27 @@ function setupGlobalEventListeners() {
                 cb.checked = false;
                 cb.closest('.check-item-label')?.classList.remove('is-selected');
             });
+
+            // Reset range slider
+            const slider = document.getElementById('admin-filter-min-free');
+            const valSpan = document.getElementById('admin-filter-min-free-val');
+            if (slider) slider.value = 0;
+            if (valSpan) valSpan.textContent = "Tất cả";
+
+            // Reset duration buttons
+            document.querySelectorAll('.btn-duration').forEach(btn => {
+                if (btn.getAttribute('data-dur') === '1') {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Reset time select dropdowns
+            const startDropdown = document.getElementById('filter-time-start');
+            const endDropdown = document.getElementById('filter-time-end');
+            if (startDropdown) startDropdown.value = HOURS[0];
+            if (endDropdown) endDropdown.value = getNextHourString(HOURS[HOURS.length - 1]);
             
             document.querySelectorAll('#admin-schedule-grid .grid-slot-cell').forEach(c => {
                 c.classList.remove('selected-cell');
@@ -1462,13 +1761,16 @@ function setupGlobalEventListeners() {
         e.preventDefault(); // Ngăn cuộn trang khi đang kéo
         const touch = e.touches[0];
         const elem = document.elementFromPoint(touch.clientX, touch.clientY);
-        if (elem && elem.classList.contains('grid-slot-cell') && !elem.classList.contains('admin-cell')) {
-            if (dragMode === 'free') {
-                elem.classList.add('state-free');
-            } else {
-                elem.classList.remove('state-free');
+        if (elem) {
+            const cell = elem.closest('.grid-slot-cell');
+            if (cell && !cell.classList.contains('admin-cell')) {
+                if (dragMode === 'free') {
+                    cell.classList.add('state-free');
+                } else {
+                    cell.classList.remove('state-free');
+                }
+                renderMemberGridDensity();
             }
-            renderMemberGridDensity();
         }
     };
 
@@ -1478,20 +1780,23 @@ function setupGlobalEventListeners() {
         e.preventDefault(); // Ngăn cuộn trang
         const touch = e.touches[0];
         const elem = document.elementFromPoint(touch.clientX, touch.clientY);
-        if (elem && elem.classList.contains('admin-cell')) {
-            const day = elem.getAttribute('data-admin-day');
-            const hour = elem.getAttribute('data-admin-hour');
-            if (!day || !hour) return;
+        if (elem) {
+            const cell = elem.closest('.admin-cell');
+            if (cell) {
+                const day = cell.getAttribute('data-admin-day');
+                const hour = cell.getAttribute('data-admin-hour');
+                if (!day || !hour) return;
 
-            const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
-            if (adminDragMode === 'select' && !isAlreadySelected) {
-                state.selectedAdminCells.push({day, hour});
-                renderAdminGrid();
-                updateAdminDetails();
-            } else if (adminDragMode === 'deselect' && isAlreadySelected) {
-                state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
-                renderAdminGrid();
-                updateAdminDetails();
+                const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
+                if (adminDragMode === 'select' && !isAlreadySelected) {
+                    state.selectedAdminCells.push({day, hour});
+                    renderAdminGrid();
+                    updateAdminDetails();
+                } else if (adminDragMode === 'deselect' && isAlreadySelected) {
+                    state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
+                    renderAdminGrid();
+                    updateAdminDetails();
+                }
             }
         }
     };
@@ -1506,6 +1811,14 @@ function setupGlobalEventListeners() {
         isAdminDragging = false;
         dragMode = null;
         adminDragMode = null;
+    });
+
+    // Thêm hỗ trợ phím Escape đóng popup admin
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const popup = document.getElementById('cell-info-popup');
+            if (popup) popup.classList.add('hidden');
+        }
     });
 
 }
