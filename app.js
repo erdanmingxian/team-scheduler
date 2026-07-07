@@ -1039,7 +1039,7 @@ function updateAdminDetails() {
         // Find consecutive blocks
         const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDuration, minFree);
         blocks.sort((a, b) => b.freeCount - a.freeCount);
-        filteredSlots = blocks.slice(0, 20);
+        filteredSlots = blocks;
     } else {
         // Find individual slots
         activeDays.forEach(day => {
@@ -1057,7 +1057,6 @@ function updateAdminDetails() {
             });
         });
         filteredSlots.sort((a, b) => b.freeCount - a.freeCount);
-        filteredSlots = filteredSlots.slice(0, 20);
     }
     
     if (filteredSlots.length === 0) {
@@ -1135,7 +1134,7 @@ function updateSuggestions() {
     if (minDur > 1) {
         const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDur, minFree);
         blocks.sort((a, b) => b.freeCount - a.freeCount);
-        topBlocks = blocks.slice(0, 10);
+        topBlocks = blocks.slice(0, 5);
     } else {
         const allSlots = [];
         activeDays.forEach(day => {
@@ -1153,7 +1152,7 @@ function updateSuggestions() {
             });
         });
         allSlots.sort((a, b) => b.freeCount - a.freeCount);
-        topSlots = allSlots.slice(0, 10);
+        topSlots = allSlots.slice(0, 5);
     }
 
     if (topBlocks.length === 0 && topSlots.length === 0) {
