@@ -2150,9 +2150,15 @@ function renderHeatmapStats() {
     const daysBarsContainer = document.getElementById('heatmap-days-bars');
     const hoursBarsContainer = document.getElementById('heatmap-hours-bars');
     
-    if (!daysBarsContainer || !hoursBarsContainer) return;
+    console.log('renderHeatmapStats called', { daysBarsContainer, hoursBarsContainer });
+    
+    if (!daysBarsContainer || !hoursBarsContainer) {
+        console.log('Containers not found');
+        return;
+    }
     
     if (!state.room || !state.room.members || Object.keys(state.room.members).length === 0) {
+        console.log('No room data or members');
         daysBarsContainer.innerHTML = '<div class="empty-state"><p>Chưa có dữ liệu</p></div>';
         hoursBarsContainer.innerHTML = '<div class="empty-state"><p>Chưa có dữ liệu</p></div>';
         return;
@@ -2167,6 +2173,8 @@ function renderHeatmapStats() {
     const filteredHours = state.adminFilters.hours;
     const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
     const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
+    
+    console.log('Stats calculation', { activeDays, activeHours, membersCount: membersToConsider.length });
     
     // Calculate free slots by day
     const dayStats = {};
@@ -2189,6 +2197,8 @@ function renderHeatmapStats() {
         });
         hourStats[hour] = totalFree;
     });
+    
+    console.log('Stats calculated', { dayStats, hourStats });
     
     // Find max values for scaling
     const maxDayFree = Math.max(...Object.values(dayStats), 1);
@@ -2223,6 +2233,8 @@ function renderHeatmapStats() {
     });
     hoursHtml += '</div>';
     hoursBarsContainer.innerHTML = hoursHtml;
+    
+    console.log('Heatmap rendered');
 }
 
 function showToast(message, type = 'success') {
