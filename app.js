@@ -1,11 +1,3 @@
-/**
- * TeamSync - Team Scheduler Application Logic (Multi-room Edition)
- * 
- * CẤU HÌNH FIREBASE Ở ĐÂY:
- * Nếu muốn chạy online đồng bộ giữa nhiều người:
- * Điền URL Realtime Database của bạn vào đây (ví dụ: "https://ten-du-an-default-rtdb.firebaseio.com/")
- * Nếu để trống "", ứng dụng sẽ chạy offline sử dụng bộ nhớ trình duyệt (localStorage).
- */
 const FIREBASE_DB_URL = "https://teamscheduledrat-default-rtdb.asia-southeast1.firebasedatabase.app/"; 
 
 // Cấu hình các ngày trong tuần và giờ làm việc (Từ 06:00 đến 00:00 tối)
@@ -26,10 +18,11 @@ const HOURS = [
     '20:00', '21:00', '22:00', '23:00'
 ];
 
-// Bảng màu 60 sắc độ dựa trên palette mới
+// Bảng màu 60 sắc độ dựa trên palette Coolors (interpolated across 10 anchors)
 // Anchors: dark -> light (sẽ được đảo ngược để PALETTE[0] = nhạt nhất, PALETTE[59] = đậm nhất)
 const PALETTE_ANCHORS = [
-    '#401565', '#402A7E', '#464898', '#687EB1', '#91B2CB', '#C0DFE4', '#F5FEFD'
+    '#7400B8', '#8013BD', '#8B26C3', '#9739C8', '#A24CCD',
+    '#AE60D3', '#B973D8', '#C586DD', '#D099E3', '#DCACE8'
 ];
 
 function hexToRgb(hex) {
@@ -127,27 +120,26 @@ let state = {
     currentMemberId: null,
     isAdminUnlocked: false,
     adminFilters: {
-        memberIds: [],          // [] = tất cả; [id1, id2] = lọc những id này
-        mandatoryMemberIds: [], // [id1, ...] = bắt buộc các thành viên này phải rảnh
-        days: [],               // [] = tất cả; ['Monday', ...] = lọc các ngày
-        hours: [],              // [] = tất cả; ['08:00', ...] = lọc các giờ
-        minFree: 0,             // 0 = không lọc; K = chỉ hiện các ô có >= K người rảnh
-        minDuration: 1,         // số khung giờ liên tiếp tối thiểu (1 = mặc định)
-        timeRangeStart: null,   // giờ bắt đầu khoảng lọc (null = không lọc)
-        timeRangeEnd: null,     // giờ kết thúc khoảng lọc (null = không lọc)
-        activePreset: null      // tên preset đang kích hoạt
+        memberIds: [],    // [] = tất cả; [id1, id2] = lọc những id này
+        days: [],         // [] = tất cả; ['Monday', ...] = lọc các ngày
+        hours: [],        // [] = tất cả; ['08:00', ...] = lọc các giờ
+        minFree: 0,       // minimum free people required for a slot to be considered
+        minDuration: 1    // consecutive hours minimum to report as a block
     },
-    selectedAdminCells: [], // Array of {day, hour}
+    selectedAdminCell: {
+        day: null,
+        hour: null
+    },
+    selectedAdminCells: [],
     isOfflineMode: true,
-    hasPendingSync: false,  // true khi có dữ liệu chưa đồng bộ lên Cloud
-    lastSuggestionsHash: ''  // hash nội dung gợi ý, tránh re-render không cần thiết
+    showOtherMembersOnGrid: false,
+    hasPendingSync: false,
+    lastSuggestionsHash: ''
 };
 
-// Biến điều khiển thao tác kéo chuột tô lịch (thành viên)
+// Biến điều khiển thao tác kéo chuột tô lịch
 let isDragging = false;
 let dragMode = null; // 'free' hoặc 'busy'
-
-// Biến điều khiển kéo chuột cho Admin
 let isAdminDragging = false;
 let adminDragMode = null; // 'select' hoặc 'deselect'
 
@@ -300,16 +292,7 @@ function initHomeView() {
             return;
         }
         
-        // Sử dụng UUID (Cách 1) kết hợp lưu localStorage (Cách 2 đã có sẵn)
-        const generateUUID = () => {
-            return (typeof crypto !== 'undefined' && crypto.randomUUID) 
-                ? crypto.randomUUID() 
-                : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                    return v.toString(16);
-                });
-        };
-        const roomId = 'room_' + generateUUID();
+        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         
         const newRoom = {
             id: roomId,
@@ -443,7 +426,6 @@ async function initRoomView() {
     buildMemberGrid();
     buildAdminGrid();
     populateAdminHoursList();
-    populateTimeRangeSelects();
     
     // Tải dữ liệu phòng
     const success = await loadRoomData();
@@ -461,14 +443,6 @@ async function initRoomView() {
     // Setup tự động đồng bộ thời gian thực mỗi 5 giây
     if (!state.isOfflineMode) {
         setInterval(async () => {
-            // Nếu có dữ liệu chưa sync, thử lại trước
-            if (state.hasPendingSync && state.room) {
-                console.log('[Sync] Đang thử đồng bộ lại dữ liệu chưa được lưu...');
-                await saveRoomDataToDB();
-                if (!state.hasPendingSync) {
-                    showToast('✅ Đã đồng bộ Cloud thành công!');
-                }
-            }
             await loadRoomData(true);
         }, 5000);
     }
@@ -489,17 +463,10 @@ async function loadRoomData(isBackground = false) {
         }
         
         if (!roomData) {
-            // Nếu Firebase không có dữ liệu, thử fallback localStorage
-            if (!state.isOfflineMode) {
-                const localRooms = getLocalRooms();
-                roomData = localRooms[state.currentRoomId];
-            }
-        }
-        if (!roomData) {
             if (!isBackground) {
                 showToast("Phòng đặt lịch không tồn tại!", "error");
                 setTimeout(() => {
-                    window.location.href = window.location.pathname;
+                    window.location.href = window.location.pathname; // Quay lại trang chủ
                 }, 2000);
             }
             return false;
@@ -533,22 +500,16 @@ async function loadRoomData(isBackground = false) {
         // Vẽ lại lưới của Thành viên nếu có thành viên đang chọn
         if (state.currentMemberId && state.room.members[state.currentMemberId]) {
             fillMemberGridFromState(state.room.members[state.currentMemberId].schedule);
+        } else if (state.showOtherMembersOnGrid) {
+            // Nếu bật chế độ xem lịch nhóm nhưng chưa chọn ai cụ thể
+            renderMemberGridDensity();
         }
         
         return true;
     } catch (error) {
         console.error("Lỗi tải phòng:", error);
-        if (isBackground) {
-            // Nếu background poll lỗi, thử dùng dữ liệu localStorage để không gây gián đoạn UI
-            const localRooms = getLocalRooms();
-            const localData = localRooms[state.currentRoomId];
-            if (localData) {
-                state.room = localData;
-                renderAdminGrid();
-                updateAdminDetails();
-            }
-        } else {
-            showToast("Lỗi kết nối — thử lại...", "error");
+        if (!isBackground) {
+            showToast("Lỗi đồng bộ dữ liệu với Cloud.", "error");
         }
         return false;
     }
@@ -559,12 +520,6 @@ function updateMemberCounts() {
     const count = Object.keys(state.room.members).length;
     document.getElementById('member-count-value').textContent = count;
     document.getElementById('admin-total-members-count').textContent = count;
-    
-    // Cập nhật giới hạn tối đa cho thanh trượt lọc số người rảnh tối thiểu
-    const sliderMinFree = document.getElementById('admin-filter-min-free');
-    if (sliderMinFree) {
-        sliderMinFree.max = count;
-    }
 }
 
 // Cập nhật danh sách thả xuống ở tab Thành viên + danh sách checkbox Admin
@@ -595,44 +550,8 @@ function updateMemberDropdowns() {
         lbl.className = 'check-item-label';
         lbl.dataset.memberId = member.id;
         const isChecked = state.adminFilters.memberIds.length === 0 || state.adminFilters.memberIds.includes(member.id);
-        const isMandatory = state.adminFilters.mandatoryMemberIds.includes(member.id);
-        
-        lbl.innerHTML = `
-            <input type="checkbox" class="admin-member-check" value="${member.id}" ${isChecked ? 'checked' : ''}>
-            <span class="member-name-span">${member.name}</span>
-            <button type="button" class="btn-toggle-mandatory ${isMandatory ? 'is-active' : ''}" title="Đánh dấu bắt buộc có mặt" data-id="${member.id}">
-                <i class="${isMandatory ? 'fa-solid' : 'fa-regular'} fa-star star-icon"></i>
-            </button>
-        `;
-        
+        lbl.innerHTML = `<input type="checkbox" class="admin-member-check" value="${member.id}" ${isChecked ? 'checked' : ''}><span>${member.name}</span>`;
         if (isChecked && state.adminFilters.memberIds.length > 0) lbl.classList.add('is-selected');
-        if (isMandatory) lbl.classList.add('has-mandatory');
-        
-        // Gắn sự kiện click cho ngôi sao trực tiếp tại đây
-        const starBtn = lbl.querySelector('.btn-toggle-mandatory');
-        starBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const id = starBtn.dataset.id;
-            const starIcon = starBtn.querySelector('.star-icon');
-            
-            const idx = state.adminFilters.mandatoryMemberIds.indexOf(id);
-            if (idx > -1) {
-                state.adminFilters.mandatoryMemberIds.splice(idx, 1);
-                starBtn.classList.remove('is-active');
-                starIcon.className = 'fa-regular fa-star star-icon';
-                lbl.classList.remove('has-mandatory');
-            } else {
-                state.adminFilters.mandatoryMemberIds.push(id);
-                starBtn.classList.add('is-active');
-                starIcon.className = 'fa-solid fa-star star-icon';
-                lbl.classList.add('has-mandatory');
-            }
-            
-            renderAdminGrid();
-            updateAdminDetails();
-        });
-
         membersList.appendChild(lbl);
     });
     
@@ -681,59 +600,86 @@ async function saveMemberScheduleToDB(memberId, schedule) {
     await saveRoomDataToDB();
     showToast(`Đã lưu lịch biểu của ${state.room.members[memberId].name}`);
     
-    // Reset lựa chọn thành viên và giao diện về trạng thái ban đầu sau khi lưu
-    state.currentMemberId = null;
-    const memberSelect = document.getElementById('member-select');
-    if (memberSelect) memberSelect.value = "";
-    const currentMemberName = document.getElementById('current-member-name');
-    if (currentMemberName) currentMemberName.textContent = "Chưa chọn";
-    const scheduleSection = document.getElementById('schedule-section');
-    if (scheduleSection) scheduleSection.classList.add('disabled-state');
-    
-    // Xóa các ô màu xanh đã chọn trên lưới
-    document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
-        cell.classList.remove('state-free');
-    });
-    
     await loadRoomData(true);
 }
 
 // Ghi dữ liệu phòng hiện tại xuống DB (Local hoặc Firebase)
 async function saveRoomDataToDB() {
-    // Luôn lưu LocalStorage trước như bản backup
-    const rooms = getLocalRooms();
-    rooms[state.currentRoomId] = state.room;
-    saveLocalRooms(rooms);
-
-    if (state.isOfflineMode) return;
-
-    // Thử ghi Firebase, retry tối đa 3 lần
-    const MAX_RETRY = 3;
-    for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
-        try {
-            const response = await fetch(`${FIREBASE_DB_URL}rooms/${state.currentRoomId}.json`, {
+    try {
+        if (state.isOfflineMode) {
+            const rooms = getLocalRooms();
+            rooms[state.currentRoomId] = state.room;
+            saveLocalRooms(rooms);
+        } else {
+            // Firebase ghi đè toàn bộ dữ liệu phòng hiện tại
+            await fetch(`${FIREBASE_DB_URL}rooms/${state.currentRoomId}.json`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(state.room)
             });
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`Firebase trả lỗi ${response.status}: ${errText}`);
-            }
-            // Thành công — xóa cờ pending nếu có
-            state.hasPendingSync = false;
-            return;
-        } catch (error) {
-            console.warn(`[Sync] Lần thử ${attempt}/${MAX_RETRY} thất bại:`, error.message);
-            if (attempt < MAX_RETRY) {
-                await new Promise(r => setTimeout(r, 800 * attempt)); // exponential backoff nhỏ
-            }
         }
+    } catch (error) {
+        console.error("Lỗi ghi DB:", error);
+        showToast("Lỗi đồng bộ Cloud (Chỉ lưu tạm thời)", "error");
     }
+}
 
-    // Tất cả retry đều thất bại — đánh dấu pending để sync lại sau
-    state.hasPendingSync = true;
-    showToast("⚠️ Lưu Cloud thất bại — đã lưu tạm offline. Sẽ tự đồng bộ lại khi có mạng.", "error");
+// -------------------------------------------------------------
+// DENSITY HEATMAP LỊCH NHÓM CHO THÀNH VIÊN
+// -------------------------------------------------------------
+function renderMemberGridDensity() {
+    if (!state.room) return;
+    const cells = document.querySelectorAll('#member-schedule-grid .grid-slot-cell');
+    const members = Object.values(state.room.members);
+    const effectiveTotal = members.length;
+    
+    // If group view is OFF -> clear inline aggregation styles and leave `.state-free` CSS to show only current member
+    if (!state.showOtherMembersOnGrid) {
+        cells.forEach(cell => {
+            cell.style.backgroundColor = '';
+            cell.style.color = '';
+            cell.style.boxShadow = '';
+            cell.style.opacity = '';
+        });
+        return;
+    }
+    
+    // Group view ON -> aggregate across members and apply palette (same logic as admin)
+    cells.forEach(cell => {
+        const day = cell.getAttribute('data-day');
+        const hour = cell.getAttribute('data-hour');
+        
+        // Reset inline styles that might conflict
+        cell.style.boxShadow = '';
+        cell.style.opacity = '';
+        
+        // Count number of members free for this slot (including current user)
+        let freeCount = 0;
+        members.forEach(m => {
+            if (m.schedule && m.schedule[day] && m.schedule[day].includes(hour)) {
+                freeCount++;
+            }
+        });
+        
+        if (effectiveTotal > 0 && freeCount > 0) {
+            let colorIndex = 0;
+            if (effectiveTotal <= 60) {
+                colorIndex = freeCount;
+            } else {
+                let step = Math.round(effectiveTotal / 60);
+                if (step < 1) step = 1;
+                colorIndex = Math.round(freeCount / step);
+            }
+            colorIndex = Math.min(59, Math.max(0, colorIndex));
+            
+            cell.style.backgroundColor = PALETTE[colorIndex];
+            cell.style.color = colorIndex >= 25 ? '#f8fafc' : '#1a0a2e';
+        } else {
+            // no one free -> clear inline background so it looks neutral
+            cell.style.backgroundColor = '';
+            cell.style.color = '';
+        }
+    });
 }
 
 // -------------------------------------------------------------
@@ -783,6 +729,7 @@ function buildMemberGrid() {
                     slotCell.classList.add('state-free');
                 }
                 
+                renderMemberGridDensity();
                 e.preventDefault();
             });
             
@@ -794,6 +741,7 @@ function buildMemberGrid() {
                 } else {
                     slotCell.classList.remove('state-free');
                 }
+                renderMemberGridDensity();
             });
             
             grid.appendChild(slotCell);
@@ -814,6 +762,8 @@ function fillMemberGridFromState(schedule) {
             cell.classList.remove('state-free');
         }
     });
+    
+    renderMemberGridDensity();
 }
 
 // Thu thập các ô đang chọn rảnh trên lưới
@@ -888,6 +838,11 @@ function buildAdminGrid() {
                     adminDragMode = 'select';
                     state.selectedAdminCells.push({day, hour});
                 }
+                
+                // Set single selected cell for detail popup reference if needed
+                state.selectedAdminCell.day = day;
+                state.selectedAdminCell.hour = hour;
+                
                 renderAdminGrid();
                 updateAdminDetails();
                 e.preventDefault();
@@ -906,6 +861,12 @@ function buildAdminGrid() {
                     updateAdminDetails();
                 }
             });
+
+            slotCell.addEventListener('click', (e) => {
+                // If the user just clicked without dragging, we show the popup
+                showCellPopup(e, day, hour);
+            });
+
             
             grid.appendChild(slotCell);
         });
@@ -915,38 +876,46 @@ function buildAdminGrid() {
 function renderAdminGrid() {
     if (!state.room) return;
     const cells = document.querySelectorAll('#admin-schedule-grid .admin-cell');
-
+    
     // Xác định thành viên cần hiển thị
     const memberIds = state.adminFilters.memberIds;
     const membersToShow = memberIds.length > 0
         ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
         : Object.values(state.room.members);
     const effectiveTotal = membersToShow.length;
-
+    
     // Xác định ngày và giờ cần hiển thị
     const filteredDays = state.adminFilters.days;
     const filteredHours = state.adminFilters.hours;
-
-    // Tìm top slots để highlight (best-slot)
-    const bestSlotKeys = computeBestSlotKeys(membersToShow, filteredDays, filteredHours);
-
+    
     cells.forEach(cell => {
         const day = cell.getAttribute('data-admin-day');
         const hour = cell.getAttribute('data-admin-hour');
-
+        
         // Reset classes and inline styles
         cell.className = 'grid-slot-cell admin-cell';
         cell.style.backgroundColor = '';
         cell.style.color = '';
-
-        if (state.selectedAdminCells.some(c => c.day === day && c.hour === hour)) {
+        
+        if (state.selectedAdminCell.day === day && state.selectedAdminCell.hour === hour) {
             cell.classList.add('selected-cell');
         }
-
+        
+        if (state.selectedAdminCells && state.selectedAdminCells.some(c => c.day === day && c.hour === hour)) {
+            cell.classList.add('selected-cell');
+        }
+        
         // Highlight filtered days/hours (make non-filtered ones faded)
         const isDayFiltered = filteredDays.length > 0 && !filteredDays.includes(day);
         const isHourFiltered = filteredHours.length > 0 && !filteredHours.includes(hour);
+        
+        if (isDayFiltered || isHourFiltered) {
+            cell.style.opacity = '0.25';
+        } else {
+            cell.style.opacity = '';
+        }
 
+        
         // Tính số người rảnh trong nhóm được lọc
         let freeCount = 0;
         membersToShow.forEach(member => {
@@ -954,40 +923,12 @@ function renderAdminGrid() {
                 freeCount++;
             }
         });
-
-        // Kiểm tra xem các thành viên bắt buộc có mặt (Mandatory Members) có rảnh không
-        const mandatoryMemberIds = state.adminFilters.mandatoryMemberIds;
-        let isMandatoryMissing = false;
-        if (mandatoryMemberIds.length > 0) {
-            isMandatoryMissing = mandatoryMemberIds.some(id => {
-                const member = state.room.members[id];
-                return !member || !member.schedule[day] || !member.schedule[day].includes(hour);
-            });
-        }
-
-        // Lọc theo số người rảnh tối thiểu (Min Availability)
-        const isBelowMinFree = freeCount < state.adminFilters.minFree;
-
-        // Kiểm tra lọc theo minDuration (consecutive block)
-        const minDur = state.adminFilters.minDuration || 1;
-        let isConsecutiveShort = false;
-        if (minDur > 1 && freeCount > 0 && !isMandatoryMissing && !isBelowMinFree && !isDayFiltered && !isHourFiltered) {
-            // Kiểm tra xem ô này có nằm trong block liên tiếp đủ dài không
-            isConsecutiveShort = !isInConsecutiveBlock(membersToShow, day, hour, state.adminFilters.minFree || 1, minDur);
-        }
-
-        // Cập nhật hiển thị text
-        if (isMandatoryMissing) {
-            cell.textContent = '🔒';
-        } else if (isBelowMinFree || isConsecutiveShort) {
-            cell.textContent = '';
-        } else {
-            cell.textContent = freeCount > 0 ? freeCount : '';
-        }
-
+        
+        cell.textContent = freeCount > 0 ? freeCount : '';
+        
         // Áp dụng màu sắc dựa trên 60 cấp độ của palette
         let colorIndex = 0;
-        if (effectiveTotal > 0 && freeCount > 0 && !isMandatoryMissing && !isBelowMinFree && !isConsecutiveShort) {
+        if (effectiveTotal > 0 && freeCount > 0) {
             if (effectiveTotal <= 60) {
                 colorIndex = freeCount;
             } else {
@@ -997,406 +938,94 @@ function renderAdminGrid() {
             }
             colorIndex = Math.min(59, Math.max(0, colorIndex));
         }
-
+        
         cell.style.backgroundColor = PALETTE[colorIndex];
         cell.style.color = colorIndex >= 25 ? '#f8fafc' : '#1a0a2e';
-
-        // Điều chỉnh độ mờ (opacity) dựa trên các bộ lọc
-        if (isDayFiltered || isHourFiltered || isMandatoryMissing || isBelowMinFree || isConsecutiveShort) {
-            cell.style.opacity = '0.12';
-        } else {
-            cell.style.opacity = '';
-        }
-
-        // Best slot highlight
-        const slotKey = `${day}__${hour}`;
-        if (bestSlotKeys.has(slotKey) && !isDayFiltered && !isHourFiltered && !isMandatoryMissing && !isBelowMinFree && !isConsecutiveShort) {
-            cell.classList.add('best-slot');
-        }
-    });
-
-    // Render heatmap sau khi cập nhật grid
-    renderHeatmap(membersToShow, filteredDays, filteredHours);
-}
-
-// Kiểm tra xem khung giờ (day, hour) có nằm trong 1 block liên tiếp >= minDur khung của >= minPeople người không
-function isInConsecutiveBlock(members, day, hour, minPeople, minDur) {
-    const hourIndex = HOURS.indexOf(hour);
-    if (hourIndex === -1) return false;
-
-    // Tìm block bắt đầu sớm nhất có thể chứa giờ này
-    for (let start = Math.max(0, hourIndex - minDur + 1); start <= hourIndex; start++) {
-        let blockOk = true;
-        for (let k = 0; k < minDur; k++) {
-            const h = HOURS[start + k];
-            if (!h) { blockOk = false; break; }
-            const cnt = members.filter(m => m.schedule[day] && m.schedule[day].includes(h)).length;
-            if (cnt < minPeople) { blockOk = false; break; }
-        }
-        if (blockOk) return true;
-    }
-    return false;
-}
-
-// Tính top N slot keys để highlight best-slot
-function computeBestSlotKeys(members, filteredDays, filteredHours) {
-    if (members.length === 0) return new Set();
-    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
-    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
-    const slots = [];
-    activeDays.forEach(day => {
-        activeHours.forEach(hour => {
-            const cnt = members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
-            if (cnt > 0) slots.push({ key: `${day}__${hour}`, cnt });
-        });
-    });
-    slots.sort((a, b) => b.cnt - a.cnt);
-    const topCnt = slots.length > 0 ? slots[0].cnt : 0;
-    // Highlight tất cả ô có cnt == topCnt (có thể nhiều hơn 3)
-    const topKeys = new Set();
-    for (const s of slots) {
-        if (s.cnt === topCnt) topKeys.add(s.key);
-        if (topKeys.size >= 5) break;
-    }
-    return topKeys;
-}
-
-// Render heatmap bars (day & hour)
-function renderHeatmap(members, filteredDays, filteredHours) {
-    const daysEl = document.getElementById('heatmap-days-bars');
-    const hoursEl = document.getElementById('heatmap-hours-bars');
-    if (!daysEl || !hoursEl) return;
-
-    const activeDays = getRoomDays();
-    const activeHours = HOURS;
-
-    // Day stats
-    const dayStats = activeDays.map(day => {
-        let total = 0;
-        activeHours.forEach(hour => {
-            total += members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
-        });
-        return { label: getRoomDayLabel(day).replace('Thứ ', 'T').replace('Chủ Nhật', 'CN'), value: total, day };
-    });
-    const maxDay = Math.max(...dayStats.map(d => d.value), 1);
-
-    daysEl.innerHTML = '';
-    dayStats.forEach(d => {
-        const pct = Math.round((d.value / maxDay) * 100);
-        const isFiltered = filteredDays.length > 0 && !filteredDays.includes(d.day);
-        const wrap = document.createElement('div');
-        wrap.className = 'heatmap-bar-wrap';
-        const bar = document.createElement('div');
-        bar.className = 'heatmap-bar';
-        bar.style.height = `${Math.max(2, pct * 0.38)}px`;
-        bar.style.background = isFiltered
-            ? 'rgba(255,255,255,0.08)'
-            : `rgba(70,72,152, ${0.2 + 0.8 * (d.value / maxDay)})`;
-        bar.title = `${d.label}: ${d.value} lượt rảnh`;
-        const lbl = document.createElement('div');
-        lbl.className = 'heatmap-bar-label';
-        lbl.textContent = d.label;
-        const cnt = document.createElement('div');
-        cnt.className = 'heatmap-bar-count';
-        cnt.textContent = d.value > 0 ? d.value : '';
-        wrap.appendChild(bar);
-        wrap.appendChild(lbl);
-        wrap.appendChild(cnt);
-        daysEl.appendChild(wrap);
-    });
-
-    // Hour stats
-    const hourStats = activeHours.map(hour => {
-        let total = 0;
-        activeDays.forEach(day => {
-            total += members.filter(m => m.schedule[day] && m.schedule[day].includes(hour)).length;
-        });
-        return { label: hour.replace(':00', 'h'), value: total, hour };
-    });
-    const maxHour = Math.max(...hourStats.map(h => h.value), 1);
-
-    hoursEl.innerHTML = '';
-    hourStats.forEach(h => {
-        const pct = Math.round((h.value / maxHour) * 100);
-        const isFiltered = filteredHours.length > 0 && !filteredHours.includes(h.hour);
-        const wrap = document.createElement('div');
-        wrap.className = 'heatmap-bar-wrap';
-        const bar = document.createElement('div');
-        bar.className = 'heatmap-bar';
-        bar.style.height = `${Math.max(2, pct * 0.38)}px`;
-        bar.style.background = isFiltered
-            ? 'rgba(255,255,255,0.08)'
-            : `rgba(145,178,203, ${0.15 + 0.85 * (h.value / maxHour)})`;
-        bar.title = `${h.label}: ${h.value} lượt rảnh`;
-        const lbl = document.createElement('div');
-        lbl.className = 'heatmap-bar-label';
-        lbl.textContent = h.label;
-        const cnt = document.createElement('div');
-        cnt.className = 'heatmap-bar-count';
-        cnt.textContent = h.value > 0 ? h.value : '';
-        wrap.appendChild(bar);
-        wrap.appendChild(lbl);
-        wrap.appendChild(cnt);
-        hoursEl.appendChild(wrap);
     });
 }
 
 function updateAdminDetails() {
-    if (!state.room) return;
-    
-    // Luôn cập nhật phần gợi ý lịch họp tối ưu
-    updateAdminSuggestions();
-
     const detailsContent = document.getElementById('admin-details-content');
+    if (!detailsContent) return;
     
     const memberIds = state.adminFilters.memberIds;
     const filteredDays = state.adminFilters.days;
     const filteredHours = state.adminFilters.hours;
-    
     const hasFilter = memberIds.length > 0 || filteredDays.length > 0 || filteredHours.length > 0;
     
-    // If admin selected one or more cells, show the list of members free in ALL those slots
-    if (state.selectedAdminCells && state.selectedAdminCells.length > 0) {
-        const membersToConsider = memberIds.length > 0
-            ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
-            : Object.values(state.room.members);
-        
-        // Free members: must be free in EVERY selected cell
-        const freeMembers = membersToConsider.filter(m => {
-            return state.selectedAdminCells.every(cell => m.schedule[cell.day] && m.schedule[cell.day].includes(cell.hour));
-        });
-        
-        // Busy members: busy in AT LEAST ONE selected cell
-        const busyMembers = membersToConsider.filter(m => {
-            return state.selectedAdminCells.some(cell => !m.schedule[cell.day] || !m.schedule[cell.day].includes(cell.hour));
-        });
-        
-        const freeHtml = freeMembers.length > 0
-            ? freeMembers.map(m => `<li class="member-list-item free-member" style="border-left: 3px solid var(--color-success);"><span class="status-icon" style="color: var(--color-success); margin-right: 0.5rem;"><i class="fa-solid fa-circle-check"></i></span><strong>${m.name}</strong></li>`).join('')
-            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên rảnh toàn bộ thời gian chọn.</p>';
-            
-        const busyHtml = busyMembers.length > 0
-            ? busyMembers.map(m => `<li class="member-list-item busy-member" style="border-left: 3px solid var(--color-danger); color: var(--text-muted);"><span class="status-icon" style="color: var(--color-danger); margin-right: 0.5rem;"><i class="fa-solid fa-circle-xmark"></i></span><strong>${m.name}</strong></li>`).join('')
-            : '<p class="filter-tip" style="margin-left: 0.5rem;">Không có thành viên bận.</p>';
-        
-        // Sort selected cells by day then hour
-        const sortedCells = [...state.selectedAdminCells].sort((a, b) => {
-            if (a.day !== b.day) return getRoomDays().indexOf(a.day) - getRoomDays().indexOf(b.day);
-            return HOURS.indexOf(a.hour) - HOURS.indexOf(b.hour);
-        });
-        
-        // Display summary of selected slots
-        const selectedSummary = sortedCells.map(c => `<strong>${getRoomDayLabel(c.day)}</strong> ${c.hour}`).join('<br>');
-        const slotCountLabel = state.selectedAdminCells.length > 1 ? `<div style="font-size: 0.8rem; margin-top: 0.3rem;">(Đã chọn ${state.selectedAdminCells.length} khung giờ)</div>` : '';
-        
-        detailsContent.innerHTML = `
-            <div class="detail-section">
-                <div style="margin-bottom: 1rem; font-size: 0.95rem; color: var(--text-primary); text-align: center;">
-                    <i class="fa-regular fa-clock" style="color: var(--color-success); margin-right: 0.4rem;"></i>
-                    ${selectedSummary}
-                    ${slotCountLabel}
-                </div>
-                
-                <h3 class="detail-title" style="margin-top: 0.5rem;"><i class="fa-solid fa-check" style="color: var(--color-success); margin-right: 0.4rem;"></i> Rảnh (${freeMembers.length})</h3>
-                <ul class="member-list" style="max-height: 150px; overflow:auto; margin-bottom: 1.25rem;">
-                    ${freeHtml}
-                </ul>
-                
-                <h3 class="detail-title"><i class="fa-solid fa-xmark" style="color: var(--color-danger); margin-right: 0.4rem;"></i> Bận (${busyMembers.length})</h3>
-                <ul class="member-list" style="max-height: 150px; overflow:auto;">
-                    ${busyHtml}
-                </ul>
-            </div>
-        `;
-        return;
-    }
-    
-    // Default behavior: if no cell selected and no filters -> show empty guidance
     if (!hasFilter) {
         detailsContent.innerHTML = `
             <div class="empty-state">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <p>Hãy chọn bộ lọc hoặc click trực tiếp ô trên lưới để phân tích chi tiết.</p>
+                <p>Hãy chọn bộ lọc để phân tích chi tiết. Click vào ô trên lịch để xem danh sách bình chọn.</p>
             </div>
         `;
         return;
     }
-    
-    // Lấy danh sách thành viên đang lọc
-    const membersToAnalyze = memberIds.length > 0
+
+    const membersToConsider = memberIds.length > 0
         ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
         : Object.values(state.room.members);
-    
-    const daysToAnalyze = filteredDays.length > 0 ? filteredDays : getRoomDays();
-    const hoursToAnalyze = filteredHours.length > 0 ? filteredHours : HOURS;
-    
-    // Tính toán lịch rảnh CHUNG (các khung giờ mà TẤT CẢ thành viên lọc đều rảnh)
-    const commonFreeSlots = [];
-    daysToAnalyze.forEach(day => {
-        hoursToAnalyze.forEach(hour => {
-            const allFree = membersToAnalyze.every(m => m.schedule[day] && m.schedule[day].includes(hour));
-            if (allFree && membersToAnalyze.length > 0) {
-                commonFreeSlots.push({ day, hour });
-            }
-        });
-    });
-    
-    const memberNamesHtml = membersToAnalyze.map(m => `<span class="detail-badge">${m.name}</span>`).join(' ');
-    const dayLabels = filteredDays.length > 0 ? filteredDays.map(d => getRoomDayLabel(d)).join(', ') : 'Tất cả ngày';
-    const hourLabels = filteredHours.length > 0 ? filteredHours.map(h => `${h}-${getNextHourString(h)}`).join(', ') : 'Tất cả giờ';
-    
-    // Nhóm slot chung theo ngày
-    const groupedByDay = {};
-    commonFreeSlots.forEach(slot => {
-        if (!groupedByDay[slot.day]) groupedByDay[slot.day] = [];
-        groupedByDay[slot.day].push(slot.hour);
-    });
-    
-    const commonSlotsHtml = Object.keys(groupedByDay).length > 0
-        ? Object.entries(groupedByDay).map(([day, hours]) => `
-            <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.2rem;">
-                <strong>${getRoomDayLabel(day)}</strong>
-                <span style="font-size: 0.8rem; color: var(--text-secondary)">${hours.map(h => `${h}-${getNextHourString(h)}`).join(', ')}</span>
-            </li>
-        `).join('')
-        : '<p class="filter-tip">Không có khung giờ rảnh chung nào.</p>';
-    
-    const htmlContent = `
-        <div class="detail-section">
-            <h3 class="detail-title">Thành viên đang phân tích</h3>
-            <div style="margin-bottom: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem;">
-                ${memberNamesHtml || '<span class="detail-badge">Tất cả</span>'}
-            </div>
-            
-            <h3 class="detail-title">Bộ lọc</h3>
-            <div class="detail-badge slot-badge" style="margin-bottom: 0.35rem;">${dayLabels}</div>
-            <div class="detail-badge slot-badge">${hourLabels}</div>
-            
-            <div class="detail-stat" style="margin-top: 1rem;">
-                <span class="number">${commonFreeSlots.length}</span>
-                <span class="total">khung giờ rảnh chung</span>
-            </div>
-            
-            <h3 class="detail-title">Giờ rảnh CHUNG (${membersToAnalyze.length > 0 ? 'cả ' + membersToAnalyze.length + ' người' : 'tất cả'})</h3>
-            ${Object.keys(groupedByDay).length > 0 ? `<ul class="member-list" style="max-height: 250px;">${commonSlotsHtml}</ul>` : commonSlotsHtml}
-        </div>
-    `;
-    
-    detailsContent.innerHTML = htmlContent;
-}
-
-// Tính toán và hiển thị gợi ý khung giờ tối ưu cho admin
-function updateAdminSuggestions() {
-    if (!state.room) return;
-    const suggestionsContent = document.getElementById('admin-suggestions-content');
-    if (!suggestionsContent) return;
-
-    const members = Object.values(state.room.members);
-
-    // Tạo hash nội dung đơn giản để phát hiện thay đổi, tránh giật do re-render liên tục
-    const filterKey = JSON.stringify({
-        memberIds: state.adminFilters.memberIds,
-        days: state.adminFilters.days,
-        hours: state.adminFilters.hours,
-        minDuration: state.adminFilters.minDuration,
-        memberCount: members.length,
-        scheduleSnapshot: members.map(m => ({
-            id: m.id,
-            days: Object.entries(m.schedule || {}).map(([d, hs]) => d + ':' + (hs || []).length).join('|')
-        }))
-    });
-    if (filterKey === state.lastSuggestionsHash) return; // không thay đổi, bỏ qua
-    state.lastSuggestionsHash = filterKey;
-
-    if (members.length === 0) {
-        suggestionsContent.innerHTML = `<div class="empty-state"><p>Chưa có thành viên nào điền lịch biểu.</p></div>`;
-        return;
-    }
-
-    // Lọc thành viên theo bộ lọc admin
-    const memberIds = state.adminFilters.memberIds;
-    const membersToConsider = memberIds.length > 0
-        ? members.filter(m => memberIds.includes(m.id))
-        : members;
 
     if (membersToConsider.length === 0) {
-        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào phù hợp bộ lọc.</p></div>`;
+        detailsContent.innerHTML = `<div class="empty-state"><p>Không có thành viên nào thỏa mãn bộ lọc.</p></div>`;
         return;
     }
 
-    const activeDays = state.adminFilters.days.length > 0 ? state.adminFilters.days : getRoomDays();
-    const activeHours = state.adminFilters.hours.length > 0 ? state.adminFilters.hours : HOURS;
+    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
+    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
     const minDur = state.adminFilters.minDuration || 1;
+    const minFree = state.adminFilters.minFree || 1;
 
-    // Tính slot scores
-    const allSlots = [];
-    activeDays.forEach(day => {
-        activeHours.forEach(hour => {
-            let freeCount = 0;
-            const freeNames = [];
-            membersToConsider.forEach(m => {
-                if (m.schedule[day] && m.schedule[day].includes(hour)) {
-                    freeCount++;
-                    freeNames.push(m.name);
+    let topBlocks = [];
+    let topSlots = [];
+
+    if (minDur > 1) {
+        const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDur, minFree);
+        blocks.sort((a, b) => b.freeCount - a.freeCount);
+        topBlocks = blocks.slice(0, 5);
+    } else {
+        const allSlots = [];
+        activeDays.forEach(day => {
+            activeHours.forEach(hour => {
+                const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+                if (freeMembers.length >= minFree) {
+                    allSlots.push({ 
+                        day, 
+                        hour, 
+                        freeCount: freeMembers.length, 
+                        freeNames: freeMembers.map(m => m.name), 
+                        total: membersToConsider.length 
+                    });
                 }
             });
-            allSlots.push({ day, hour, freeCount, freeNames, total: membersToConsider.length });
         });
-    });
-
-    // Tìm các BLOCK liên tiếp (nhóm khung giờ liên tiếp cùng ngày)
-    const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDur);
-
-    // Sắp xếp block theo score (avgFreeCount * duration)
-    blocks.sort((a, b) => (b.avgFree * b.duration) - (a.avgFree * a.duration));
-
-    // Top 5 blocks tốt nhất
-    const topBlocks = blocks.filter(b => b.avgFree > 0).slice(0, 5);
-
-    // Fallback: nếu minDur=1 hoặc không có block đủ dài, hiện slot đơn
-    let topSlots = [];
-    if (topBlocks.length === 0) {
         allSlots.sort((a, b) => b.freeCount - a.freeCount);
-        topSlots = allSlots.filter(s => s.freeCount > 0).slice(0, 5);
+        topSlots = allSlots.slice(0, 5);
     }
 
     if (topBlocks.length === 0 && topSlots.length === 0) {
-        suggestionsContent.innerHTML = `<div class="empty-state"><p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p></div>`;
+        detailsContent.innerHTML = `<div class="empty-state"><p>Không tìm thấy khung giờ rảnh nào phù hợp bộ lọc.</p></div>`;
         return;
     }
 
-    // Tính thành viên linh hoạt nhất
-    const memberStats = membersToConsider.map(m => {
-        let count = 0;
-        activeDays.forEach(day => { if (m.schedule[day]) count += m.schedule[day].length; });
-        return { name: m.name, count };
-    });
-    memberStats.sort((a, b) => b.count - a.count);
-    const mostFlexibleMember = memberStats[0];
-
-    // Tính thành viên khó xếp lịch nhất (ít rảnh nhất)
-    const leastFlexible = memberStats[memberStats.length - 1];
-
-    let html = `<div class="detail-section">`;
-    html += `<h3 class="detail-title">Top ${topBlocks.length > 0 ? topBlocks.length : topSlots.length} Khung Giờ Tối Ưu Nhất</h3>`;
-    html += `<ul class="member-list" style="margin-bottom: 1.25rem; max-height: none;">`;
-
+    let html = `<h4><i class="fa-solid fa-ranking-star"></i> Khung giờ gợi ý</h4><ul class="suggestion-list">`;
+    
     if (topBlocks.length > 0) {
         topBlocks.forEach((block, index) => {
-            const pct = Math.round((block.avgFree / membersToConsider.length) * 100);
+            const pct = Math.round((block.freeCount / membersToConsider.length) * 100);
             const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
-            const endHour = HOURS[HOURS.indexOf(block.startHour) + block.duration] || '00:00';
             html += `
                 <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
                     <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${endHour}</strong>
+                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(block.day)} · ${block.startHour}–${block.endHour}</strong>
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <span class="block-duration-tag">${block.duration}h liên tiếp</span>
                             <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
                         </div>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        <strong>Rảnh:</strong> ${block.freeNames.join(', ')} (${block.avgFree}/${membersToConsider.length} người)
+                        <strong>Rảnh:</strong> ${block.freeNames.join(', ')} (${block.freeCount}/${membersToConsider.length} người)
                     </div>
                     <div class="suggestion-progress-wrap">
                         <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
@@ -1409,142 +1038,197 @@ function updateAdminSuggestions() {
             const pct = Math.round((slot.freeCount / slot.total) * 100);
             const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
             html += `
-                <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem 1rem; border-left: 3px solid var(--color-success);">
+                <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
                     <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
-                        <span class="suggestion-tier-badge tier-badge-${tier}">${slot.freeCount}/${slot.total} (${pct}%)</span>
+                        <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}</strong>
+                        <span class="suggestion-tier-badge tier-badge-${tier}">${pct}%</span>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                        <strong>Rảnh:</strong> ${slot.freeNames.join(', ')}
-                    </div>
-                    <div class="suggestion-progress-wrap">
-                        <div class="suggestion-progress-bar tier-${tier}" style="width: ${pct}%"></div>
+                        <strong>Rảnh:</strong> ${slot.freeNames.join(', ')} (${slot.freeCount}/${slot.total} người)
                     </div>
                 </li>
             `;
         });
     }
+    
     html += `</ul>`;
-
-    // Thành viên linh hoạt nhất
-    if (mostFlexibleMember && mostFlexibleMember.count > 0) {
-        html += `<h3 class="detail-title">Thành viên linh hoạt nhất</h3>`;
-        html += `
-            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-left: 3px solid #06b6d4; gap: 0.5rem;">
-                <span><strong>${mostFlexibleMember.name}</strong></span>
-                <span style="color: var(--text-secondary); font-size: 0.8rem;">Rảnh ${mostFlexibleMember.count} khung giờ</span>
-            </div>
-        `;
-    }
-
-    // Thành viên khó xếp nhất (nếu khác người trên)
-    if (leastFlexible && leastFlexible.name !== mostFlexibleMember?.name) {
-        html += `<h3 class="detail-title">Thành viên ít rảnh nhất</h3>`;
-        html += `
-            <div class="member-list-item" style="padding: 0.75rem 1rem; margin-bottom: 1rem; border-left: 3px solid #f43f5e; gap: 0.5rem;">
-                <span><strong>${leastFlexible.name}</strong></span>
-                <span style="color: var(--text-secondary); font-size: 0.8rem;">Chỉ rảnh ${leastFlexible.count} khung giờ</span>
-            </div>
-        `;
-    }
-
-    html += `
-        <button type="button" id="btn-copy-report" class="btn btn-primary btn-block">
-            <i class="fa-solid fa-copy"></i> Sao chép báo cáo tóm tắt
-        </button>
-    `;
-    html += `</div>`;
-    suggestionsContent.innerHTML = html;
-
-    // Attach copy report
-    const btnCopyReport = document.getElementById('btn-copy-report');
-    if (btnCopyReport) {
-        btnCopyReport.addEventListener('click', () => {
-            let reportText = `📊 BÁO CÁO LỊCH RẢNH TỔNG HỢP - ${state.room.name.toUpperCase()}\n`;
-            reportText += `--------------------------------------------------\n`;
-            reportText += `Top khung giờ họp tối ưu nhất:\n\n`;
-
-            if (topBlocks.length > 0) {
-                topBlocks.forEach((block, index) => {
-                    const pct = Math.round((block.avgFree / membersToConsider.length) * 100);
-                    const endHour = HOURS[HOURS.indexOf(block.startHour) + block.duration] || '00:00';
-                    reportText += `${index + 1}. ${getRoomDayLabel(block.day)} từ ${block.startHour} đến ${endHour} (${block.duration}h liên tiếp)\n`;
-                    reportText += `   👉 Trung bình: ${block.avgFree.toFixed(1)}/${membersToConsider.length} (${pct}%)\n`;
-                    reportText += `   👉 Thành viên rảnh: ${block.freeNames}\n\n`;
-                });
-            } else {
-                topSlots.forEach((slot, index) => {
-                    const pct = Math.round((slot.freeCount / slot.total) * 100);
-                    reportText += `${index + 1}. ${getRoomDayLabel(slot.day)} từ ${slot.hour} đến ${getNextHourString(slot.hour)}\n`;
-                    reportText += `   👉 Số người rảnh: ${slot.freeCount}/${slot.total} (${pct}%)\n`;
-                    reportText += `   👉 Thành viên rảnh: ${slot.freeNames.join(', ')}\n\n`;
-                });
-            }
-            if (mostFlexibleMember && mostFlexibleMember.count > 0) {
-                reportText += `👤 Thành viên rảnh nhiều nhất: ${mostFlexibleMember.name} (${mostFlexibleMember.count} khung giờ)\n`;
-            }
-            reportText += `--------------------------------------------------\n`;
-            reportText += `TeamSync - Lập lịch trực tuyến của bạn!`;
-
-            navigator.clipboard.writeText(reportText).then(() => {
-                showToast("Đã sao chép báo cáo lịch biểu vào bộ nhớ tạm!");
-            }).catch(() => showToast("Lỗi sao chép báo cáo.", "error"));
-        });
-    }
+    detailsContent.innerHTML = html;
 }
 
-// Tìm các block giờ liên tiếp đủ dài (>= minDur) mà mỗi ô có >= 1 người rảnh
-function findConsecutiveBlocks(members, activeDays, activeHours, minDur) {
-    const blocks = [];
-    activeDays.forEach(day => {
-        for (let i = 0; i <= activeHours.length - minDur; i++) {
-            // Check if minDur slots starting at i are consecutive
-            let isConsecutive = true;
-            for (let k = 0; k < minDur - 1; k++) {
-                if (HOURS.indexOf(activeHours[i + k + 1]) !== HOURS.indexOf(activeHours[i + k]) + 1) {
-                    isConsecutive = false;
-                    break;
-                }
-            }
-            if (!isConsecutive) continue;
-            
-            // Find intersection of free members across these minDur slots
-            let freeMembers = members.filter(m => {
-                for (let k = 0; k < minDur; k++) {
-                    if (!m.schedule[day] || !m.schedule[day].includes(activeHours[i + k])) return false;
-                }
-                return true;
-            });
-            
-            if (freeMembers.length > 0) {
-                blocks.push({
-                    day,
-                    startHour: activeHours[i],
-                    duration: minDur,
-                    avgFree: freeMembers.length,
-                    freeNames: freeMembers.map(m => m.name)
-                });
-            }
-        }
+// Add popup helpers (place after palette generation)
+function createCellPopupIfNeeded() {
+    if (document.getElementById('cell-popup')) return;
+    const popup = document.createElement('div');
+    popup.id = 'cell-popup';
+    popup.style.position = 'absolute';
+    popup.style.zIndex = 9999;
+    popup.style.minWidth = '200px';
+    popup.style.maxWidth = '360px';
+    popup.style.padding = '0.6rem';
+    popup.style.borderRadius = '8px';
+    popup.style.boxShadow = '0 8px 24px rgba(2,6,23,0.6)';
+    popup.style.background = 'var(--bg-elevated, rgba(10,10,12,0.9))';
+    popup.style.color = 'var(--text-primary)';
+    popup.style.display = 'none';
+    popup.style.fontSize = '0.9rem';
+    popup.addEventListener('click', (e) => e.stopPropagation());
+    document.body.appendChild(popup);
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') hideCellPopup();
     });
-    
-    // Remove duplicate blocks if they have the exact same members and overlap
-    // But since they are all exactly length minDur, it's fine to just return them.
-    return blocks;
+    document.addEventListener('click', () => hideCellPopup());
 }
 
-// Mở khóa giao diện Admin
-function unlockAdminView() {
-    state.isAdminUnlocked = true;
+function showCellPopup(anchorCell, htmlContent) {
+    createCellPopupIfNeeded();
+    const popup = document.getElementById('cell-popup');
+    popup.innerHTML = htmlContent;
+
+    popup.style.display = 'block';
+    popup.style.opacity = '0';
+    popup.style.transform = 'translateY(-6px)';
+
+    const rect = anchorCell.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    const margin = 8;
+    // Prefer right side
+    let left = rect.right + margin + window.scrollX;
+    if (left + popupRect.width + margin > window.innerWidth + window.scrollX) {
+        left = rect.left - popupRect.width - margin + window.scrollX;
+    }
+    if (left < window.scrollX + margin) left = window.scrollX + margin;
+
+    let top = rect.top + window.scrollY + (rect.height / 2) - (popupRect.height / 2);
+    const minTop = window.scrollY + margin;
+    const maxTop = window.scrollY + window.innerHeight - popupRect.height - margin;
+    if (top < minTop) top = minTop;
+    if (top > maxTop) top = maxTop;
+
+    popup.style.left = `${Math.round(left)}px`;
+    popup.style.top = `${Math.round(top)}px`;
+
+    requestAnimationFrame(() => {
+        popup.style.transition = 'opacity 160ms ease, transform 160ms ease';
+        popup.style.opacity = '1';
+        popup.style.transform = 'translateY(0)';
+    });
+}
+
+function hideCellPopup() {
+    const popup = document.getElementById('cell-popup');
+    if (!popup || popup.style.display === 'none') return;
+    popup.style.transition = 'opacity 140ms ease, transform 140ms ease';
+    popup.style.opacity = '0';
+    popup.style.transform = 'translateY(-6px)';
+    setTimeout(() => {
+        if (popup) popup.style.display = 'none';
+    }, 160);
+}
+
+function generateCellDetailHtml(day, hour, membersToConsider) {
+    const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+    const busyMembers = membersToConsider.filter(m => !(m.schedule[day] && m.schedule[day].includes(hour)));
+
+    const freeHtml = freeMembers.length
+        ? `<ul style="margin:0; padding-left:0.6rem; max-height:220px; overflow:auto;">${freeMembers.map(m => `<li style="padding:0.25rem 0;"><strong>${m.name}</strong></li>`).join('')}</ul>`
+        : `<div style="color:var(--text-secondary);">Không có thành viên rảnh.</div>`;
+
+    const busyHtml = busyMembers.length ? `<div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.85rem;">Bận: ${busyMembers.map(m => m.name).join(', ')}</div>` : '';
+
+    return `
+        <div>
+            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+                <strong style="font-size:0.95rem;">${getRoomDayLabel(day)}</strong>
+                <span style="font-size:0.85rem; color:var(--text-secondary);">${hour} - ${getNextHourString(hour)}</span>
+            </div>
+            ${freeHtml}
+            ${busyHtml}
+            <div style="margin-top:0.6rem; display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button class="btn btn-sm btn-copy-slot" data-day="${day}" data-hour="${hour}" style="font-size:0.8rem;">Sao chép</button>
+                <button class="btn btn-sm btn-close-popup" style="font-size:0.8rem;">Đóng</button>
+            </div>
+        </div>
+    `;
+}
+
+// Attach delegated handlers for popup buttons
+document.addEventListener('click', (e) => {
+    const popup = document.getElementById('cell-info-popup');
     
-    // Lưu vào Session để không phải nhập lại mật khẩu trong phiên làm việc hiện tại
-    sessionStorage.setItem(`teamsync_unlocked_${state.currentRoomId}`, 'true');
+    // Đóng popup nếu click ra ngoài
+    if (popup && !popup.classList.contains('hidden')) {
+        const isClickInside = popup.contains(e.target);
+        const isCell = e.target.classList.contains('grid-slot-cell');
+        const isCloseBtn = e.target.closest('.cell-popup-close');
+        
+        if (isCloseBtn || (!isClickInside && !isCell)) {
+            popup.classList.add('hidden');
+        }
+    }
+});
+
+// Hàm hiển thị Popup khi click vào ô admin
+function showCellPopup(e, day, hour) {
+    const popup = document.getElementById('cell-info-popup');
+    const title = document.getElementById('cell-popup-title');
+    const body = document.getElementById('cell-popup-body');
+    if (!popup || !title || !body) return;
+
+    title.textContent = `${getRoomDayLabel(day)} · ${hour} - ${getNextHourString(hour)}`;
     
-    document.getElementById('admin-lock-card').classList.add('hidden');
-    document.getElementById('admin-workspace-content').classList.remove('hidden');
+    const members = Object.values(state.room.members);
+    const freeMembers = members.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+    const busyMembers = members.filter(m => !m.schedule[day] || !m.schedule[day].includes(hour));
+
+    let html = '';
     
-    renderAdminGrid();
-    updateAdminDetails();
+    if (freeMembers.length > 0) {
+        html += `<div class="popup-section">
+                    <div class="popup-section-label">Rảnh (${freeMembers.length})</div>
+                    <ul class="popup-member-list">`;
+        freeMembers.forEach(m => {
+            html += `<li class="popup-member-item free"><div class="popup-dot free"></div>${m.name}</li>`;
+        });
+        html += `</ul></div>`;
+    } else {
+        html += `<div class="popup-section"><div class="popup-section-label">Rảnh (0)</div></div>`;
+    }
+
+    if (busyMembers.length > 0) {
+        if (freeMembers.length > 0) html += `<div class="cell-popup-divider"></div>`;
+        html += `<div class="popup-section">
+                    <div class="popup-section-label">Bận (${busyMembers.length})</div>
+                    <ul class="popup-member-list">`;
+        busyMembers.forEach(m => {
+            html += `<li class="popup-member-item busy"><div class="popup-dot busy"></div>${m.name}</li>`;
+        });
+        html += `</ul></div>`;
+    }
+
+    body.innerHTML = html;
+
+    // Vị trí hiển thị (hiển thị dưới/phải con trỏ chuột 15px)
+    popup.classList.remove('hidden');
+    
+    let left = e.clientX + 15;
+    let top = e.clientY + 15;
+    
+    // Chống tràn màn hình
+    const rect = popup.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth) {
+        left = e.clientX - rect.width - 15;
+    }
+    if (top + rect.height > window.innerHeight) {
+        top = e.clientY - rect.height - 15;
+    }
+    
+    // Đảm bảo không âm
+    left = Math.max(10, left);
+    top = Math.max(10, top);
+
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
 }
 
 // -------------------------------------------------------------
@@ -1561,10 +1245,7 @@ function setupGlobalEventListeners() {
             const tabId = btn.getAttribute('data-tab');
             document.getElementById(tabId).classList.add('active');
             
-            const btnOpenFilter = document.getElementById('btn-open-filter-modal');
-            
             if (tabId === 'admin-tab') {
-                if (btnOpenFilter) btnOpenFilter.classList.remove('hidden');
                 const isUnlocked = sessionStorage.getItem(`teamsync_unlocked_${state.currentRoomId}`) === 'true';
                 if (isUnlocked || state.isAdminUnlocked) {
                     unlockAdminView();
@@ -1572,34 +1253,9 @@ function setupGlobalEventListeners() {
                     document.getElementById('admin-lock-card').classList.remove('hidden');
                     document.getElementById('admin-workspace-content').classList.add('hidden');
                 }
-            } else {
-                if (btnOpenFilter) btnOpenFilter.classList.add('hidden');
             }
         });
     });
-    
-    // Modal Filter Logic
-    const btnOpenFilter = document.getElementById('btn-open-filter-modal');
-    const filterModal = document.getElementById('admin-filter-modal');
-    const btnCloseFilter = document.getElementById('btn-close-filter-modal');
-    const btnApplyFilters = document.getElementById('btn-apply-filters');
-    
-    if (btnOpenFilter && filterModal && btnCloseFilter && btnApplyFilters) {
-        btnOpenFilter.addEventListener('click', () => {
-            filterModal.classList.remove('hidden');
-        });
-        
-        const closeFilterModal = () => {
-            filterModal.classList.add('hidden');
-        };
-        
-        btnCloseFilter.addEventListener('click', closeFilterModal);
-        btnApplyFilters.addEventListener('click', closeFilterModal);
-        
-        filterModal.addEventListener('click', (e) => {
-            if (e.target === filterModal) closeFilterModal();
-        });
-    }
     
     // 2. Quay lại trang chủ
     const btnGoHome = document.getElementById('btn-go-home');
@@ -1674,6 +1330,7 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
                 cell.classList.add('state-free');
             });
+            renderMemberGridDensity();
         });
     }
     if (btnClearAll) {
@@ -1682,6 +1339,16 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('#member-schedule-grid .grid-slot-cell').forEach(cell => {
                 cell.classList.remove('state-free');
             });
+            renderMemberGridDensity();
+        });
+    }
+    
+    // 8. Tab Thành viên: Checkbox bật tắt hiện lịch nhóm
+    const checkboxShowOther = document.getElementById('checkbox-show-other-members');
+    if (checkboxShowOther) {
+        checkboxShowOther.addEventListener('change', (e) => {
+            state.showOtherMembersOnGrid = e.target.checked;
+            renderMemberGridDensity();
         });
     }
     
@@ -1702,8 +1369,6 @@ function setupGlobalEventListeners() {
         });
     }
     
-    // Collapsible logic removed, now using Modal (see setupGlobalEventListeners)
-    
     // 10. Tab Admin: Bộ lọc multi-select
     const btnResetFilters = document.getElementById('btn-reset-filters');
     
@@ -1716,145 +1381,13 @@ function setupGlobalEventListeners() {
     // Hour checkboxes
     setupHourCheckboxEvents();
     
-    // Setup quick hour filter session buttons
-    const morningBtn = document.getElementById('btn-filter-morning');
-    const afternoonBtn = document.getElementById('btn-filter-afternoon');
-    const eveningBtn = document.getElementById('btn-filter-evening');
-    
-    function filterHoursBySession(session) {
-        const morningHours = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
-        const afternoonHours = ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
-        const eveningHours = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
-        
-        let targetHours = [];
-        if (session === 'morning') targetHours = morningHours;
-        else if (session === 'afternoon') targetHours = afternoonHours;
-        else if (session === 'evening') targetHours = eveningHours;
-        
-        const allHourCb = document.getElementById('admin-filter-hour-all');
-        if (allHourCb) allHourCb.checked = false;
-        
-        const hourCbs = document.querySelectorAll('.admin-hour-check');
-        hourCbs.forEach(cb => {
-            const isMatch = targetHours.includes(cb.value);
-            cb.checked = isMatch;
-            const label = cb.closest('.check-item-label');
-            if (isMatch) {
-                label?.classList.add('is-selected');
-            } else {
-                label?.classList.remove('is-selected');
-            }
-        });
-        
-        state.adminFilters.hours = targetHours;
-        renderAdminGrid();
-        updateAdminDetails();
-    }
-    
-    if (morningBtn) morningBtn.addEventListener('click', () => filterHoursBySession('morning'));
-    if (afternoonBtn) afternoonBtn.addEventListener('click', () => filterHoursBySession('afternoon'));
-    if (eveningBtn) eveningBtn.addEventListener('click', () => filterHoursBySession('evening'));
-    
-    // Setup min availability range slider listener
-    const sliderMinFree = document.getElementById('admin-filter-min-free');
-    const labelMinFreeVal = document.getElementById('admin-filter-min-free-val');
-    
-    if (sliderMinFree && labelMinFreeVal) {
-        sliderMinFree.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
-            state.adminFilters.minFree = val;
-            if (val === 0) {
-                labelMinFreeVal.textContent = "Tất cả";
-            } else {
-                labelMinFreeVal.textContent = `>= ${val} người`;
-            }
-            renderAdminGrid();
-            updateAdminDetails();
-        });
-    }
-
-    // Duration buttons
-    document.querySelectorAll('.btn-duration').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.btn-duration').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            state.adminFilters.minDuration = parseInt(btn.getAttribute('data-dur')) || 1;
-            renderAdminGrid();
-            updateAdminDetails();
-        });
-    });
-
-    // Time range selects
-    const timeStartSel = document.getElementById('filter-time-start');
-    const timeEndSel = document.getElementById('filter-time-end');
-    function applyTimeRange() {
-        const startVal = timeStartSel ? timeStartSel.value : '';
-        const endVal = timeEndSel ? timeEndSel.value : '';
-        if (!startVal && !endVal) {
-            state.adminFilters.hours = [];
-        } else {
-            const startIdx = startVal ? HOURS.indexOf(startVal) : 0;
-            const endIdx = endVal ? HOURS.indexOf(endVal) : HOURS.length - 1;
-            if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
-                state.adminFilters.hours = HOURS.slice(startIdx, endIdx + 1);
-                // Sync hour checkboxes
-                const allHourCb = document.getElementById('admin-filter-hour-all');
-                if (allHourCb) allHourCb.checked = false;
-                document.querySelectorAll('.admin-hour-check').forEach(cb => {
-                    const inRange = state.adminFilters.hours.includes(cb.value);
-                    cb.checked = inRange;
-                    cb.closest('.check-item-label')?.classList.toggle('is-selected', inRange);
-                });
-            }
-        }
-        renderAdminGrid();
-        updateAdminDetails();
-    }
-    if (timeStartSel) timeStartSel.addEventListener('change', applyTimeRange);
-    if (timeEndSel) timeEndSel.addEventListener('change', applyTimeRange);
-
-    // Weekday / Weekend quick filter
-    const btnWeekdays = document.getElementById('btn-filter-weekdays');
-    const btnWeekends = document.getElementById('btn-filter-weekends');
-    const WEEKDAY_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    const WEEKEND_DAYS = ['Saturday', 'Sunday'];
-
-    function filterByDayGroup(targetDays) {
-        const activeDays = getRoomDays();
-        const matchDays = targetDays.filter(d => activeDays.includes(d));
-        const allDayCb = document.getElementById('admin-filter-day-all');
-        if (allDayCb) allDayCb.checked = false;
-        document.querySelectorAll('.admin-day-check').forEach(cb => {
-            const isMatch = matchDays.includes(cb.value);
-            cb.checked = isMatch;
-            cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
-        });
-        state.adminFilters.days = matchDays;
-        renderAdminGrid();
-        updateAdminDetails();
-    }
-    if (btnWeekdays) btnWeekdays.addEventListener('click', () => filterByDayGroup(WEEKDAY_DAYS));
-    if (btnWeekends) btnWeekends.addEventListener('click', () => filterByDayGroup(WEEKEND_DAYS));
-
-    // Filter Presets
-    document.querySelectorAll('.btn-preset').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const preset = btn.getAttribute('data-preset');
-            applyPreset(preset);
-        });
-    });
     if (btnResetFilters) {
         btnResetFilters.addEventListener('click', () => {
             state.adminFilters.memberIds = [];
-            state.adminFilters.mandatoryMemberIds = [];
             state.adminFilters.days = [];
             state.adminFilters.hours = [];
-            state.adminFilters.minFree = 0;
-            state.adminFilters.minDuration = 1;
-            state.adminFilters.timeRangeStart = null;
-            state.adminFilters.timeRangeEnd = null;
-            state.adminFilters.activePreset = null;
-            state.selectedAdminCells = [];
+            state.selectedAdminCell.day = null;
+            state.selectedAdminCell.hour = null;
             
             // Reset member checkboxes
             const memberAllCb = document.getElementById('admin-filter-member-all');
@@ -1862,16 +1395,6 @@ function setupGlobalEventListeners() {
             document.querySelectorAll('.admin-member-check').forEach(cb => {
                 cb.checked = false;
                 cb.closest('.check-item-label')?.classList.remove('is-selected');
-            });
-            
-            // Reset star buttons
-            document.querySelectorAll('.btn-toggle-mandatory').forEach(btn => {
-                btn.classList.remove('is-active');
-                const starIcon = btn.querySelector('.star-icon');
-                if (starIcon) starIcon.className = 'fa-regular fa-star star-icon';
-            });
-            document.querySelectorAll('.check-item-label').forEach(lbl => {
-                lbl.classList.remove('has-mandatory');
             });
             
             // Reset day checkboxes
@@ -1889,26 +1412,6 @@ function setupGlobalEventListeners() {
                 cb.checked = false;
                 cb.closest('.check-item-label')?.classList.remove('is-selected');
             });
-            
-            // Reset slider
-            const sliderMinFreeElement = document.getElementById('admin-filter-min-free');
-            if (sliderMinFreeElement) sliderMinFreeElement.value = 0;
-            const labelMinFreeValElement = document.getElementById('admin-filter-min-free-val');
-            if (labelMinFreeValElement) labelMinFreeValElement.textContent = "Tất cả";
-
-            // Reset duration buttons
-            document.querySelectorAll('.btn-duration').forEach(b => b.classList.remove('active'));
-            const dur1 = document.getElementById('dur-1h');
-            if (dur1) dur1.classList.add('active');
-
-            // Reset time range selects
-            const tStart = document.getElementById('filter-time-start');
-            const tEnd = document.getElementById('filter-time-end');
-            if (tStart) tStart.value = '';
-            if (tEnd) tEnd.value = '';
-
-            // Reset preset buttons
-            document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
             
             document.querySelectorAll('#admin-schedule-grid .grid-slot-cell').forEach(c => {
                 c.classList.remove('selected-cell');
@@ -1947,10 +1450,64 @@ function setupGlobalEventListeners() {
     // Đóng kéo chuột chung
     window.addEventListener('mouseup', () => {
         isDragging = false;
-        dragMode = null;
         isAdminDragging = false;
+        dragMode = null;
         adminDragMode = null;
     });
+
+    // --- CẢM ỨNG (TOUCH EVENTS) ĐỂ KÉO THẢ TRÊN ĐIỆN THOẠI ---
+    // Member grid touch dragging
+    const handleMemberTouchMove = (e) => {
+        if (!isDragging || state.currentMemberId === null) return;
+        e.preventDefault(); // Ngăn cuộn trang khi đang kéo
+        const touch = e.touches[0];
+        const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (elem && elem.classList.contains('grid-slot-cell') && !elem.classList.contains('admin-cell')) {
+            if (dragMode === 'free') {
+                elem.classList.add('state-free');
+            } else {
+                elem.classList.remove('state-free');
+            }
+            renderMemberGridDensity();
+        }
+    };
+
+    // Admin grid touch dragging
+    const handleAdminTouchMove = (e) => {
+        if (!isAdminDragging) return;
+        e.preventDefault(); // Ngăn cuộn trang
+        const touch = e.touches[0];
+        const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (elem && elem.classList.contains('admin-cell')) {
+            const day = elem.getAttribute('data-admin-day');
+            const hour = elem.getAttribute('data-admin-hour');
+            if (!day || !hour) return;
+
+            const isAlreadySelected = state.selectedAdminCells.some(c => c.day === day && c.hour === hour);
+            if (adminDragMode === 'select' && !isAlreadySelected) {
+                state.selectedAdminCells.push({day, hour});
+                renderAdminGrid();
+                updateAdminDetails();
+            } else if (adminDragMode === 'deselect' && isAlreadySelected) {
+                state.selectedAdminCells = state.selectedAdminCells.filter(c => !(c.day === day && c.hour === hour));
+                renderAdminGrid();
+                updateAdminDetails();
+            }
+        }
+    };
+
+    window.addEventListener('touchmove', (e) => {
+        if (isDragging) handleMemberTouchMove(e);
+        if (isAdminDragging) handleAdminTouchMove(e);
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+        isDragging = false;
+        isAdminDragging = false;
+        dragMode = null;
+        adminDragMode = null;
+    });
+
 }
 
 // -------------------------------------------------------------
@@ -1971,6 +1528,49 @@ function createEmptySchedule() {
     });
     return schedule;
 }
+
+// Tìm các block liên tiếp (nối tiếp nhau) >= minDur giờ, trong đó có >= minPeople rảnh TẤT CẢ các giờ trong block (intersection)
+function findConsecutiveBlocks(members, activeDays, activeHours, minDur, minPeople = 1) {
+    const blocks = [];
+    const hourIndices = activeHours.map(h => HOURS.indexOf(h)).sort((a,b) => a - b);
+    
+    activeDays.forEach(day => {
+        for (let i = 0; i <= hourIndices.length - minDur; i++) {
+            // Kiểm tra xem các giờ từ i đến i + minDur - 1 có liên tiếp nhau không
+            let isConsecutive = true;
+            for (let k = 0; k < minDur - 1; k++) {
+                if (hourIndices[i + k + 1] !== hourIndices[i + k] + 1) {
+                    isConsecutive = false;
+                    break;
+                }
+            }
+            if (!isConsecutive) continue;
+
+            const blockHours = [];
+            for (let k = 0; k < minDur; k++) {
+                blockHours.push(HOURS[hourIndices[i + k]]);
+            }
+
+            // Tìm những người rảnh ở TẤT CẢ các giờ trong block này (intersection)
+            const freeMembers = members.filter(m => {
+                return blockHours.every(h => m.schedule[day] && m.schedule[day].includes(h));
+            });
+
+            if (freeMembers.length >= minPeople) {
+                blocks.push({
+                    day: day,
+                    startHour: blockHours[0],
+                    endHour: getNextHourString(blockHours[blockHours.length - 1]),
+                    duration: minDur,
+                    freeCount: freeMembers.length,
+                    freeNames: freeMembers.map(m => m.name)
+                });
+            }
+        }
+    });
+    return blocks;
+}
+
 
 function populateAdminDaysList() {
     const daysList = document.getElementById('admin-filter-days-list');
@@ -2007,120 +1607,6 @@ function populateAdminHoursList() {
         hoursList.appendChild(lbl);
     });
 }
-
-// Điền danh sách giờ cho 2 select Time Range (Từ giờ / Đến giờ)
-function populateTimeRangeSelects() {
-    const startSel = document.getElementById('filter-time-start');
-    const endSel = document.getElementById('filter-time-end');
-    if (!startSel || !endSel) return;
-
-    const emptyOpt = () => {
-        const o = document.createElement('option');
-        o.value = '';
-        o.textContent = '-- Tất cả --';
-        return o;
-    };
-
-    startSel.innerHTML = '';
-    endSel.innerHTML = '';
-    startSel.appendChild(emptyOpt());
-    endSel.appendChild(emptyOpt());
-
-    HOURS.forEach(hour => {
-        const nextH = getNextHourString(hour);
-        const o1 = document.createElement('option');
-        o1.value = hour;
-        o1.textContent = `${hour}`;
-        startSel.appendChild(o1);
-
-        const o2 = document.createElement('option');
-        o2.value = hour;
-        o2.textContent = `${nextH}`;
-        endSel.appendChild(o2);
-    });
-}
-
-// Áp dụng preset bộ lọc nhanh
-function applyPreset(presetName) {
-    // Toggle: click lại preset đang active thì reset
-    if (state.adminFilters.activePreset === presetName) {
-        state.adminFilters.activePreset = null;
-        state.adminFilters.days = [];
-        state.adminFilters.hours = [];
-        document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
-        syncCheckboxesToFilters();
-        renderAdminGrid();
-        updateAdminDetails();
-        return;
-    }
-
-    state.adminFilters.activePreset = presetName;
-    document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
-    document.querySelector(`.btn-preset[data-preset="${presetName}"]`)?.classList.add('active');
-
-    const activeDays = getRoomDays();
-    const WEEKDAY_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    const WEEKEND_DAYS = ['Saturday', 'Sunday'];
-
-    const WORKHOURS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
-    const EVENING_HOURS = ['18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
-    const MORNING_HOURS = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
-
-    switch (presetName) {
-        case 'workhours':
-            state.adminFilters.days = WEEKDAY_DAYS.filter(d => activeDays.includes(d));
-            state.adminFilters.hours = WORKHOURS;
-            break;
-        case 'evening':
-            state.adminFilters.days = [];
-            state.adminFilters.hours = EVENING_HOURS;
-            break;
-        case 'weekend':
-            state.adminFilters.days = WEEKEND_DAYS.filter(d => activeDays.includes(d));
-            state.adminFilters.hours = [];
-            break;
-        case 'morning':
-            state.adminFilters.days = [];
-            state.adminFilters.hours = MORNING_HOURS;
-            break;
-    }
-
-    syncCheckboxesToFilters();
-    renderAdminGrid();
-    updateAdminDetails();
-}
-
-// Đồng bộ trạng thái checkbox với state.adminFilters (sau khi áp dụng preset)
-function syncCheckboxesToFilters() {
-    const fDays = state.adminFilters.days;
-    const fHours = state.adminFilters.hours;
-
-    // Sync days
-    const dayAllCb = document.getElementById('admin-filter-day-all');
-    if (dayAllCb) dayAllCb.checked = fDays.length === 0;
-    document.querySelectorAll('.admin-day-check').forEach(cb => {
-        const isMatch = fDays.includes(cb.value);
-        cb.checked = isMatch;
-        cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
-    });
-
-    // Sync hours
-    const hourAllCb = document.getElementById('admin-filter-hour-all');
-    if (hourAllCb) hourAllCb.checked = fHours.length === 0;
-    document.querySelectorAll('.admin-hour-check').forEach(cb => {
-        const isMatch = fHours.includes(cb.value);
-        cb.checked = isMatch;
-        cb.closest('.check-item-label')?.classList.toggle('is-selected', isMatch);
-    });
-
-    // Sync time range selects
-    const tStart = document.getElementById('filter-time-start');
-    const tEnd = document.getElementById('filter-time-end');
-    if (tStart) tStart.value = fHours.length > 0 ? fHours[0] : '';
-    if (tEnd) tEnd.value = fHours.length > 0 ? fHours[fHours.length - 1] : '';
-}
-
-
 
 function setupAdminMemberCheckboxEvents() {
     const allCb = document.getElementById('admin-filter-member-all');
