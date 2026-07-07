@@ -1806,6 +1806,34 @@ input:checked + .slider:before {
     margin-top: 2px;
 }
 
+.heatmap-bar-value {
+    font-size: 0.7rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 2px;
+}
+
+.filter-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+}
+
+.filter-summary-item {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.filter-summary-item strong {
+    color: var(--text-primary);
+}
+
 /* ============================================================
    BEST SLOT HIGHLIGHT
    ============================================================ */

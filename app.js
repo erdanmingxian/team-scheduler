@@ -1002,18 +1002,12 @@ function updateAdminDetails() {
         return;
     }
     
-    // Only show manual selection results (when user clicks on cells)
-    if (state.selectedAdminCells.length === 0) {
-        detailsContent.innerHTML = `
-            <div class="empty-state">
-                <i class="fa-solid fa-hand-pointer"></i>
-                <p>Nhấp vào các ô lưới lịch biểu để xem chi tiết thông tin lọc thủ công.</p>
-            </div>
-        `;
-        return;
-    }
-    
     const memberIds = state.adminFilters.memberIds;
+    const filteredDays = state.adminFilters.days;
+    const filteredHours = state.adminFilters.hours;
+    const minFree = state.adminFilters.minFree || 0;
+    const minDuration = state.adminFilters.minDuration || 1;
+    
     const membersToConsider = memberIds.length > 0
         ? Object.values(state.room.members).filter(m => memberIds.includes(m.id))
         : Object.values(state.room.members);
@@ -1023,33 +1017,93 @@ function updateAdminDetails() {
         return;
     }
 
-    let html = `<h4><i class="fa-solid fa-magnifying-glass"></i> Thông tin lọc thủ công</h4>`;
-    html += `<div class="detail-stat"><span class="number">${state.selectedAdminCells.length}</span><span class="total">ô đã chọn</span></div>`;
+    const activeDays = filteredDays.length > 0 ? filteredDays : getRoomDays();
+    const activeHours = filteredHours.length > 0 ? filteredHours : HOURS;
     
-    // Show selected cells info
-    html += `<ul class="member-list">`;
-    state.selectedAdminCells.forEach(cell => {
-        const freeMembers = membersToConsider.filter(m => m.schedule[cell.day] && m.schedule[cell.day].includes(cell.hour));
-        const busyMembers = membersToConsider.filter(m => !m.schedule[cell.day] || !m.schedule[cell.day].includes(cell.hour));
+    // Show filter results based on applied filters
+    let html = `<h4><i class="fa-solid fa-filter"></i> Kết quả lọc</h4>`;
+    
+    // Show filter summary
+    html += `<div class="filter-summary">`;
+    html += `<div class="filter-summary-item">Thành viên: <strong>${membersToConsider.length}</strong></div>`;
+    html += `<div class="filter-summary-item">Ngày: <strong>${activeDays.length}</strong></div>`;
+    html += `<div class="filter-summary-item">Giờ: <strong>${activeHours.length}</strong></div>`;
+    html += `<div class="filter-summary-item">Tối thiểu rảnh: <strong>${minFree} người</strong></div>`;
+    html += `<div class="filter-summary-item">Thời lượng: <strong>${minDuration}h liên tiếp</strong></div>`;
+    html += `</div>`;
+    
+    // Calculate and show filtered results
+    let filteredSlots = [];
+    
+    if (minDuration > 1) {
+        // Find consecutive blocks
+        const blocks = findConsecutiveBlocks(membersToConsider, activeDays, activeHours, minDuration, minFree);
+        blocks.sort((a, b) => b.freeCount - a.freeCount);
+        filteredSlots = blocks.slice(0, 20);
+    } else {
+        // Find individual slots
+        activeDays.forEach(day => {
+            activeHours.forEach(hour => {
+                const freeMembers = membersToConsider.filter(m => m.schedule[day] && m.schedule[day].includes(hour));
+                if (freeMembers.length >= minFree) {
+                    filteredSlots.push({
+                        day,
+                        hour,
+                        freeCount: freeMembers.length,
+                        freeNames: freeMembers.map(m => m.name),
+                        total: membersToConsider.length
+                    });
+                }
+            });
+        });
+        filteredSlots.sort((a, b) => b.freeCount - a.freeCount);
+        filteredSlots = filteredSlots.slice(0, 20);
+    }
+    
+    if (filteredSlots.length === 0) {
+        html += `<div class="empty-state"><p>Không tìm thấy kết quả nào phù hợp bộ lọc.</p></div>`;
+    } else {
+        html += `<div class="detail-stat"><span class="number">${filteredSlots.length}</span><span class="total">kết quả tìm thấy</span></div>`;
+        html += `<ul class="member-list">`;
         
-        html += `
-            <li class="member-list-item" style="flex-direction: column; align-items: flex-start; gap: 0.5rem;">
-                <div style="display: flex; justify-content: space-between; width: 100%;">
-                    <strong>${getRoomDayLabel(cell.day)} · ${cell.hour}–${getNextHourString(cell.hour)}</strong>
-                    <span class="detail-badge slot-badge">${freeMembers.length}/${membersToConsider.length} rảnh</span>
-                </div>
-                <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                    <span style="color: #91B2CB;">● Rảnh (${freeMembers.length}):</span> ${freeMembers.map(m => m.name).join(', ') || 'Không'}
-                </div>
-                ${busyMembers.length > 0 ? `
-                <div style="font-size: 0.8rem; color: var(--text-muted);">
-                    <span style="color: var(--color-danger);">● Bận (${busyMembers.length}):</span> ${busyMembers.map(m => m.name).join(', ')}
-                </div>
-                ` : ''}
-            </li>
-        `;
-    });
-    html += `</ul>`;
+        filteredSlots.forEach((slot, index) => {
+            const pct = Math.round((slot.freeCount / membersToConsider.length) * 100);
+            const tier = pct >= 100 ? 'gold' : pct >= 70 ? 'green' : 'blue';
+            
+            if (slot.duration) {
+                // Block result
+                html += `
+                    <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
+                        <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.startHour}–${slot.endHour}</strong>
+                            <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                <span class="block-duration-tag">${slot.duration}h liên tiếp</span>
+                                <span class="suggestion-tier-badge tier-badge-${tier}">${pct}% (${slot.freeCount}/${membersToConsider.length} người)</span>
+                            </div>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            <strong>Người rảnh:</strong> ${slot.freeNames.join(', ')}
+                        </div>
+                    </li>
+                `;
+            } else {
+                // Single slot result
+                html += `
+                    <li class="member-list-item free-member" style="flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.8rem 1rem; border-left: 3px solid var(--color-success);">
+                        <div style="display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                            <strong style="color: var(--text-primary);">#${index + 1}. ${getRoomDayLabel(slot.day)} · ${slot.hour}–${getNextHourString(slot.hour)}</strong>
+                            <span class="suggestion-tier-badge tier-badge-${tier}">${pct}% (${slot.freeCount}/${slot.total} người)</span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            <strong>Người rảnh:</strong> ${slot.freeNames.join(', ')}
+                        </div>
+                    </li>
+                `;
+            }
+        });
+        
+        html += `</ul>`;
+    }
     
     detailsContent.innerHTML = html;
 }
@@ -2212,6 +2266,7 @@ function renderHeatmapStats() {
         daysHtml += `
             <div class="heatmap-bar-wrapper">
                 <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
+                <div class="heatmap-bar-value">${value}</div>
                 <div class="heatmap-bar-label">${getRoomDayLabel(day).split(' ')[0]}</div>
             </div>
         `;
@@ -2227,6 +2282,7 @@ function renderHeatmapStats() {
         hoursHtml += `
             <div class="heatmap-bar-wrapper">
                 <div class="heatmap-bar" style="height: ${heightPercent}%" title="${value} lượt rảnh"></div>
+                <div class="heatmap-bar-value">${value}</div>
                 <div class="heatmap-bar-label">${hour}</div>
             </div>
         `;
